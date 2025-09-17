@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Delivery Application for Gebeta Delivery Service",
+    "slug": "delivery-application-gebeta",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "myapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.delivery.gebeta"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.delivery.gebeta",
+      "permissions": [
+        "android.permission.VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://delivery.gebeta.com/"
+        }
+      ]
+    ],
+    "assetBundlePatterns": [
+      "assets/**/*",
+      "components/**/*",
+      "providers/**/*"
+    ]
+  }
+}
