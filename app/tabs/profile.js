@@ -1,188 +1,321 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
+  TouchableOpacity,
   Alert,
+  Image,
+  Switch,
+  ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   User, 
-  Settings, 
-  HelpCircle, 
-  LogOut, 
-  Star,
+  Phone, 
+  Mail, 
+  MapPin, 
+  Car,
+  Motorcycle,
+  Bike,
   Truck,
-  Phone,
-  Mail
+  Settings,
+  LogOut,
+  Bell,
+  Shield,
+  HelpCircle,
+  Info,
+  ChevronRight,
+  Edit3
 } from 'lucide-react-native';
-import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
+import { useDelivery } from '../../providers/delivery-provider';
 
 export default function ProfileScreen() {
-  const { isOnline, toggleOnlineStatus, orderHistory } = useDelivery();
-  const { logout } = useAuth();
-
-  const totalDeliveries = orderHistory.length;
-  const totalEarnings = orderHistory.reduce((sum, order) => sum + order.grandTotal, 0);
-  const averageRating = 4.8; // Mock rating
+  const { user, logout, isAuthenticated } = useAuth();
+  const { isOnline, toggleOnlineStatus, clearDeliveryData } = useDelivery();
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = () => {
+    if (isLoggingOut) return; // Prevent multiple logout attempts
+    
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: logout },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            setIsLoggingOut(true);
+            try {
+              console.log('🚪 Starting logout process...');
+              
+              // Clear delivery data first
+              await clearDeliveryData();
+              console.log('✅ Delivery data cleared');
+              
+              // Then logout
+              await logout();
+              console.log('✅ Logout completed');
+              
+            } catch (error) {
+              console.error('❌ Error during logout:', error);
+              // Still try to logout even if delivery data clearing fails
+              try {
+                await logout();
+              } catch (logoutError) {
+                console.error('❌ Logout also failed:', logoutError);
+                setIsLoggingOut(false); // Reset state if both fail
+              }
+            }
+          },
+        },
       ]
     );
   };
 
-  const simulateOrder = () => {
-    const mockOrder = {
-      orderId: `test_${Date.now()}`,
-      order_id: `ORD${Math.floor(Math.random() * 10000)}`,
-      restaurantLocation: {
-        lat: 40.7128,
-        lng: -74.0060,
-      },
-      deliveryLocation: {
-        lat: 40.7589,
-        lng: -73.9851,
-        address: '123 Test Street, New York, NY 10001',
-      },
-      deliveryFee: 5.99,
-      tip: 3.50,
-      grandTotal: 9.49,
-      createdAt: new Date().toISOString(),
-      status: 'available',
-    };
-    
-    // Simulate receiving a new order
-    Alert.alert(
-      '🚚 New Delivery Order!',
-      `Order ID: ${mockOrder.order_id}\n` +
-      `💰 Total: ${(mockOrder.grandTotal || 0).toFixed(2)}\n` +
-      `🚗 Delivery Fee: ${(mockOrder.deliveryFee || 0).toFixed(2)}\n` +
-      `💵 Tip: ${(mockOrder.tip || 0).toFixed(2)}\n` +
-      `📍 Distance: 2.5 km\n` +
-      `📍 Delivery to: ${mockOrder.deliveryLocation.address}`,
-      [
-        {
-          text: '❌ Decline',
-          style: 'cancel',
-        },
-        {
-          text: '✅ Accept',
-          style: 'default',
-          onPress: () => {
-            Alert.alert('✅ Success', 'Test order accepted! (This is just a simulation)');
-          },
-        },
-      ],
-      { cancelable: false }
-    );
+  const getDeliveryMethodIcon = (method) => {
+    switch (method?.toLowerCase()) {
+      case 'car':
+        return <Car color="#1E40AF" size={20} />;
+      case 'motor':
+      case 'motorcycle':
+        return <Motorcycle color="#1E40AF" size={20} />;
+      case 'bicycle':
+      case 'bike':
+        return <Bike color="#1E40AF" size={20} />;
+      default:
+        return <Truck color="#1E40AF" size={20} />;
+    }
   };
 
-  const menuItems = [
-    { icon: Settings, title: 'Settings', onPress: () => console.log('Settings') },
-    { icon: HelpCircle, title: 'Help & Support', onPress: () => console.log('Help') },
-    { icon: Truck, title: 'Test Order Popup', onPress: simulateOrder },
-    { icon: LogOut, title: 'Logout', onPress: handleLogout, danger: true },
-  ];
+  const getDeliveryMethodName = (method) => {
+    switch (method?.toLowerCase()) {
+      case 'car':
+        return 'Car Delivery';
+      case 'motor':
+      case 'motorcycle':
+        return 'Motorcycle Delivery';
+      case 'bicycle':
+      case 'bike':
+        return 'Bicycle Delivery';
+      default:
+        return 'Standard Delivery';
+    }
+  };
+
+  const ProfileItem = ({ icon, title, value, onPress, showChevron = true }) => (
+    <TouchableOpacity 
+      style={styles.profileItem}
+      onPress={onPress}
+      disabled={!onPress}
+    >
+      <View style={styles.profileItemLeft}>
+        <View style={styles.profileItemIcon}>
+          {icon}
+        </View>
+        <View style={styles.profileItemContent}>
+          <Text style={styles.profileItemTitle}>{title}</Text>
+          {value && <Text style={styles.profileItemValue}>{value}</Text>}
+        </View>
+      </View>
+      {showChevron && onPress && (
+        <ChevronRight color="#6B7280" size={20} />
+      )}
+    </TouchableOpacity>
+  );
+
+  const SettingsItem = ({ icon, title, onPress, rightComponent }) => (
+    <TouchableOpacity 
+      style={styles.settingsItem}
+      onPress={onPress}
+      disabled={!onPress}
+    >
+      <View style={styles.settingsItemLeft}>
+        <View style={styles.settingsItemIcon}>
+          {icon}
+        </View>
+        <Text style={styles.settingsItemTitle}>{title}</Text>
+      </View>
+      {rightComponent || (onPress && <ChevronRight color="#6B7280" size={20} />)}
+    </TouchableOpacity>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Profile Header */}
-        <LinearGradient
-          colors={['#3B82F6', '#1E40AF']}
-          style={styles.profileHeader}
-        >
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <User color="#FFFFFF" size={32} />
-            </View>
-            <View style={styles.statusIndicator}>
-              <View style={[styles.statusDot, isOnline ? styles.online : styles.offline]} />
-            </View>
-          </View>
-          
-          <Text style={styles.driverName}>Driver Name</Text>
-          <Text style={styles.driverId}>ID: 68ac61f8294653916f8406e6</Text>
-          
-          <TouchableOpacity 
-            style={styles.statusButton}
-            onPress={toggleOnlineStatus}
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Profile</Text>
+        </View>
+
+        {/* Profile Card */}
+        <View style={styles.profileCard}>
+          <LinearGradient
+            colors={['#1E40AF', '#3B82F6']}
+            style={styles.profileGradient}
           >
-            <Text style={styles.statusButtonText}>
-              {isOnline ? 'Go Offline' : 'Go Online'}
-            </Text>
-          </TouchableOpacity>
-        </LinearGradient>
-
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Truck color="#3B82F6" size={24} />
-            <Text style={styles.statNumber}>{totalDeliveries}</Text>
-            <Text style={styles.statLabel}>Deliveries</Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Star color="#F59E0B" size={24} />
-            <Text style={styles.statNumber}>{averageRating}</Text>
-            <Text style={styles.statLabel}>Rating</Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statCurrency}>$</Text>
-            <Text style={styles.statNumber}>{(totalEarnings || 0).toFixed(0)}</Text>
-            <Text style={styles.statLabel}>Earned</Text>
-          </View>
-        </View>
-
-        {/* Contact Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Contact Information</Text>
-          
-          <View style={styles.contactItem}>
-            <Phone color="#6B7280" size={20} />
-            <Text style={styles.contactText}>+1 (555) 123-4567</Text>
-          </View>
-          
-          <View style={styles.contactItem}>
-            <Mail color="#6B7280" size={20} />
-            <Text style={styles.contactText}>driver@example.com</Text>
-          </View>
-        </View>
-
-        {/* Menu Items */}
-        <View style={styles.section}>
-          {menuItems.map((item, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.menuItem}
-              onPress={item.onPress}
-            >
-              <View style={styles.menuItemLeft}>
-                <item.icon 
-                  color={item.danger ? "#EF4444" : "#6B7280"} 
-                  size={20} 
-                />
-                <Text style={[
-                  styles.menuItemText,
-                  item.danger && styles.dangerText
-                ]}>
-                  {item.title}
-                </Text>
+            <View style={styles.profileInfo}>
+              <View style={styles.avatarContainer}>
+                {user?.profilePicture ? (
+                  <Image 
+                    source={{ uri: user.profilePicture }} 
+                    style={styles.avatar}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <User color="#FFFFFF" size={32} />
+                  </View>
+                )}
               </View>
-              <Text style={styles.menuItemArrow}>›</Text>
-            </TouchableOpacity>
-          ))}
+              
+              <View style={styles.userInfo}>
+                <Text style={styles.userName}>
+                  {user?.firstName && user?.lastName 
+                    ? `${user.firstName} ${user.lastName}`
+                    : 'Delivery Driver'
+                  }
+                </Text>
+                <Text style={styles.userRole}>
+                  {user?.role === 'Delivery_Person' ? 'Delivery Driver' : user?.role}
+                </Text>
+                <View style={styles.userStatus}>
+                  <View style={[styles.statusDot, isOnline ? styles.onlineDot : styles.offlineDot]} />
+                  <Text style={styles.statusText}>
+                    {isOnline ? 'Online' : 'Offline'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </LinearGradient>
+        </View>
+
+        {/* Personal Information */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Personal Information</Text>
+          
+          <ProfileItem
+            icon={<Phone color="#6B7280" size={20} />}
+            title="Phone Number"
+            value={user?.phone || 'Not provided'}
+            onPress={() => Alert.alert('Phone', user?.phone || 'Phone number not available')}
+          />
+          
+          <ProfileItem
+            icon={<Mail color="#6B7280" size={20} />}
+            title="Email Address"
+            value={user?.email || 'Not provided'}
+            onPress={() => Alert.alert('Email', user?.email || 'Email not available')}
+          />
+          
+          <ProfileItem
+            icon={getDeliveryMethodIcon(user?.deliveryMethod)}
+            title="Delivery Method"
+            value={getDeliveryMethodName(user?.deliveryMethod)}
+            onPress={() => Alert.alert('Delivery Method', getDeliveryMethodName(user?.deliveryMethod))}
+          />
+          
+          <ProfileItem
+            icon={<Shield color="#6B7280" size={20} />}
+            title="Phone Verified"
+            value={user?.isPhoneVerified ? 'Verified' : 'Not Verified'}
+            onPress={() => Alert.alert(
+              'Phone Verification', 
+              user?.isPhoneVerified 
+                ? 'Your phone number is verified' 
+                : 'Your phone number is not verified'
+            )}
+          />
+        </View>
+
+        {/* Work Settings */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Work Settings</Text>
+          
+          <View style={styles.settingsItem}>
+            <View style={styles.settingsItemLeft}>
+              <View style={styles.settingsItemIcon}>
+                <Bell color="#6B7280" size={20} />
+              </View>
+              <Text style={styles.settingsItemTitle}>Notifications</Text>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={setNotificationsEnabled}
+              trackColor={{ false: '#E5E7EB', true: '#1E40AF' }}
+              thumbColor={notificationsEnabled ? '#FFFFFF' : '#FFFFFF'}
+            />
+          </View>
+          
+          <SettingsItem
+            icon={<Settings color="#6B7280" size={20} />}
+            title="Delivery Preferences"
+            onPress={() => Alert.alert('Coming Soon', 'Delivery preferences will be available in a future update')}
+          />
+          
+          <SettingsItem
+            icon={<MapPin color="#6B7280" size={20} />}
+            title="Working Areas"
+            onPress={() => Alert.alert('Coming Soon', 'Working areas configuration will be available in a future update')}
+          />
+        </View>
+
+        {/* Account Actions */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          
+          <SettingsItem
+            icon={<Edit3 color="#6B7280" size={20} />}
+            title="Edit Profile"
+            onPress={() => Alert.alert('Coming Soon', 'Profile editing will be available in a future update')}
+          />
+          
+          <SettingsItem
+            icon={<HelpCircle color="#6B7280" size={20} />}
+            title="Help & Support"
+            onPress={() => Alert.alert('Help & Support', 'For support, please contact your administrator or call the support hotline')}
+          />
+          
+          <SettingsItem
+            icon={<Info color="#6B7280" size={20} />}
+            title="About"
+            onPress={() => Alert.alert(
+              'About Delivery Driver App',
+              'Version 1.0.0\n\nA modern delivery driver application for managing orders and tracking deliveries.\n\n© 2024 Gebeta Delivery'
+            )}
+          />
+        </View>
+
+        {/* Logout Button */}
+        <View style={styles.logoutSection}>
+          <TouchableOpacity 
+            style={[styles.logoutButton, isLoggingOut && styles.logoutButtonDisabled]}
+            onPress={handleLogout}
+            disabled={isLoggingOut}
+          >
+            <LinearGradient
+              colors={isLoggingOut ? ['#9CA3AF', '#6B7280'] : ['#EF4444', '#DC2626']}
+              style={styles.logoutGradient}
+            >
+              {isLoggingOut ? (
+                <>
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <Text style={styles.logoutText}>Logging out...</Text>
+                </>
+              ) : (
+                <>
+                  <LogOut color="#FFFFFF" size={20} />
+                  <Text style={styles.logoutText}>Logout</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
 
         {/* App Version */}
@@ -199,111 +332,95 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
-  profileHeader: {
-    alignItems: 'center',
-    paddingVertical: 40,
+  header: {
     paddingHorizontal: 20,
+    paddingVertical: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  profileCard: {
+    margin: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  profileGradient: {
+    padding: 24,
+  },
+  profileInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   avatarContainer: {
-    position: 'relative',
-    marginBottom: 16,
+    marginRight: 16,
   },
   avatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+  },
+  avatarPlaceholder: {
     width: 80,
     height: 80,
     borderRadius: 40,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
   },
-  statusIndicator: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 2,
+  userInfo: {
+    flex: 1,
   },
-  statusDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-  },
-  online: {
-    backgroundColor: '#10B981',
-  },
-  offline: {
-    backgroundColor: '#6B7280',
-  },
-  driverName: {
+  userName: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginBottom: 4,
   },
-  driverId: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 20,
-  },
-  statusButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  statusButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+  userRole: {
     fontSize: 16,
+    color: '#FFFFFF',
+    opacity: 0.9,
+    marginBottom: 8,
   },
-  statsContainer: {
+  userStatus: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginTop: -20,
-    borderRadius: 16,
-    paddingVertical: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  statItem: {
-    flex: 1,
     alignItems: 'center',
   },
-  statNumber: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginTop: 8,
-    marginBottom: 4,
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
   },
-  statCurrency: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#10B981',
-    marginTop: 8,
+  onlineDot: {
+    backgroundColor: '#10B981',
   },
-  statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
+  offlineDot: {
+    backgroundColor: '#6B7280',
+  },
+  statusText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    opacity: 0.9,
+    fontWeight: '500',
   },
   section: {
-    backgroundColor: '#FFFFFF',
     marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    marginBottom: 24,
   },
   sectionTitle: {
     fontSize: 18,
@@ -311,40 +428,109 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 16,
   },
-  contactItem: {
+  profileItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    gap: 12,
-  },
-  contactText: {
-    fontSize: 16,
-    color: '#374151',
-  },
-  menuItem: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  menuItemLeft: {
+  profileItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    flex: 1,
   },
-  menuItemText: {
+  profileItemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  profileItemContent: {
+    flex: 1,
+  },
+  profileItemTitle: {
     fontSize: 16,
-    color: '#374151',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 2,
   },
-  dangerText: {
-    color: '#EF4444',
+  profileItemValue: {
+    fontSize: 14,
+    color: '#6B7280',
   },
-  menuItemArrow: {
-    fontSize: 20,
-    color: '#9CA3AF',
+  settingsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  settingsItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  settingsItemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  settingsItemTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  logoutSection: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+  },
+  logoutButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  logoutButtonDisabled: {
+    shadowOpacity: 0.1,
+    elevation: 2,
+  },
+  logoutGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+  },
+  logoutText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginLeft: 8,
   },
   versionContainer: {
     alignItems: 'center',

@@ -212,6 +212,30 @@ export default function DashboardScreen() {
     );
   };
 
+  const testLogout = () => {
+    Alert.alert(
+      '🧪 Test Logout',
+      'This will test the logout functionality. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Test Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('🧪 Testing logout...');
+              // This will trigger the logout from the auth provider
+              router.replace('/login');
+              console.log('✅ Logout test completed');
+            } catch (error) {
+              console.error('❌ Logout test failed:', error);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   useEffect(() => {
     console.log('Dashboard mounted. Connection status:', isConnected, 'Online:', isOnline);
   }, [isConnected, isOnline]);
@@ -622,22 +646,40 @@ export default function DashboardScreen() {
              
              <TouchableOpacity 
                style={styles.debugButton}
+               onPress={testLogout}
+             >
+               <Text style={styles.debugButtonText}>Test Logout</Text>
+             </TouchableOpacity>
+           </View>
+           
+           <View style={styles.quickActions}>
+             <TouchableOpacity 
+               style={styles.debugButton}
                onPress={() => console.log('Auth state:', { isAuthenticated: true, userId })}
              >
                <Text style={styles.debugButtonText}>Log Auth State</Text>
+             </TouchableOpacity>
+             
+             <TouchableOpacity 
+               style={styles.debugButton}
+               onPress={() => console.log('Delivery state:', { isOnline, isConnected, availableOrdersCount })}
+             >
+               <Text style={styles.debugButtonText}>Log Delivery State</Text>
              </TouchableOpacity>
            </View>
         </View>
       </ScrollView>
       
              {/* Order Modal */}
-       <OrderModal
-         visible={showOrderModalState}
-         order={pendingOrderPopup}
-         onAccept={acceptOrderFromModal}
-         onDecline={declineOrder}
-         onClose={hideOrderModal}
-       />
+       {showOrderModalState && pendingOrderPopup && (
+         <OrderModal
+           visible={showOrderModalState}
+           order={pendingOrderPopup}
+           onAccept={acceptOrderFromModal}
+           onDecline={declineOrder}
+           onClose={hideOrderModal}
+         />
+       )}
 
        {/* Verification Modal */}
        <VerificationModal

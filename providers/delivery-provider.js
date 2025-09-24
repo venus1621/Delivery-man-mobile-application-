@@ -64,21 +64,98 @@ export const DeliveryProvider = ({ children }) => {
 
   const socketRef = useRef(null);
 
-  // 🔌 Connect to socket server
+  // 🔌 Connect to socket server with authentication
   useEffect(() => {
+    if (!token || !userId) {
+      console.log("❌ No token or userId available for socket connection");
+      // Clear socket connection if no token/userId
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+        setState((prev) => ({ ...prev, isConnected: false, socket: null }));
+      }
+      return;
+    }
+
     const socket = io("https://gebeta-delivery1.onrender.com", {
       transports: ["websocket"],
+      auth: {
+        token: token // Send JWT token for authentication
+      }
     });
     socketRef.current = socket;
 
     socket.on("connect", () => {
       console.log("✅ Connected to socket:", socket.id);
-      // Join delivery group
-      socket.emit("joinRole", "Delivery_Person");
       setState((prev) => ({ ...prev, isConnected: true, socket }));
     });
 
-    // 📊 Orders count updates
+    socket.on("message", (message) => {
+      console.log("📢 Delivery message received:", message);
+    });
+
+    socket.on("deliveryMessage", (message) => {
+      console.log("🚚 Delivery group message:", message);
+    });
+
+    socket.on("errorMessage", (error) => {
+      console.error("❌ Socket error:", error);
+      Alert.alert("Connection Error", error);
+    });
+
+    socket.on("connect_error", (error) => {
+      console.error("❌ Socket connection error:", error);
+      if (error.message.includes('Authentication error')) {
+        Alert.alert("Authentication Error", "Please log in again");
+        // You might want to trigger logout here
+      }
+    });
+
+    // 🍲 New order notifications from backend (based on your notifyDeliveryGroup function)
+    socket.on("deliveryMessage", (orderData) => {
+      console.log("🚚 New delivery order received:", orderData);
+      
+      // Transform the order data to match our expected format
+      const transformedOrder = {
+        orderId: orderData.orderId,
+        orderCode: orderData.orderCode,
+        restaurantLocation: {
+          name: orderData.restaurantName,
+          address: orderData.restaurantLocation || 'Restaurant Location',
+          lat: 0, // Will be updated when we fetch full order details
+          lng: 0,
+        },
+        deliveryLocation: {
+          lat: 0, // Will be updated when we fetch full order details
+          lng: 0,
+          address: orderData.deliveryLocation || 'Delivery Location',
+        },
+        deliveryFee: orderData.deliveryFee || 0,
+        tip: orderData.tip || 0,
+        grandTotal: (orderData.deliveryFee || 0) + (orderData.tip || 0),
+        createdAt: orderData.createdAt || new Date().toISOString(),
+        customer: {
+          name: 'Customer',
+          phone: 'N/A',
+        },
+        items: [
+          { name: 'Order Items', quantity: 1 }
+        ],
+        specialInstructions: 'Please handle with care',
+      };
+
+      setState((prev) => ({
+        ...prev,
+        availableOrders: [...prev.availableOrders, transformedOrder],
+        availableOrdersCount: prev.availableOrdersCount + 1,
+        // Automatically show the order modal for new orders
+        pendingOrderPopup: transformedOrder,
+        showOrderModal: true,
+        newOrderNotification: true, // Set notification flag
+      }));
+    });
+
+    // 📊 Orders count updates (if backend sends this)
     socket.on("available-orders-count", ({ count }) => {
       console.log("📊 Available orders count:", count);
       setState((prev) => ({ ...prev, availableOrdersCount: count }));
@@ -116,12 +193,18 @@ export const DeliveryProvider = ({ children }) => {
     });
 
     return () => {
+      socket.off("connect");
+      socket.off("message");
+      socket.off("deliveryMessage");
+      socket.off("errorMessage");
+      socket.off("connect_error");
       socket.off("available-orders-count");
       socket.off("order:cooked");
       socket.off("order:accepted");
+      socket.off("disconnect");
       socket.disconnect();
     };
-  }, []);
+  }, [token, userId]);
 
   // 📱 Storage functions for accepted orders
   const STORAGE_KEYS = {
@@ -159,64 +242,50 @@ export const DeliveryProvider = ({ children }) => {
       if (response.ok && data.status === 'success') {
         console.log("✅ Active order data fetched successfully:", data.results, "orders");
         
-        // Find active orders (prioritize Delivering, then Cooked)
+        // Since the API doesn't include orderStatus, we'll take the first order as active
+        // In a real scenario, you'd filter by status
         const activeOrders = data.data.filter(order => 
-          order.orderStatus === 'Delivering' || order.orderStatus === 'Cooked'
+          order.orderId && order.orderCode // Just ensure we have valid order data
         );
         
-        // Prioritize Delivering orders, then Cooked orders
-        const activeOrder = activeOrders.find(order => order.orderStatus === 'Delivering') || 
-                           activeOrders.find(order => order.orderStatus === 'Cooked');
+        // Take the first available order as active
+        const activeOrder = activeOrders[0];
         
         console.log("🍲 Active order data fetched successfully:", activeOrder);
         
 
         if (activeOrder) {
-          console.log("🍲 Found active order:", activeOrder.order_id, "Status:", activeOrder.orderStatus);
-          
-          // Get restaurant address from coordinates
-          const restaurantLat = activeOrder.restaurant_id.location.coordinates[1];
-          const restaurantLng = activeOrder.restaurant_id.location.coordinates[0];
-          const restaurantAddress = await getAddressFromCoordinates(restaurantLat, restaurantLng);
-          
-          // Get delivery address from coordinates
-          const deliveryLat = activeOrder.location.lat;
-          const deliveryLng = activeOrder.location.lng;
-          const deliveryAddress = await getAddressFromCoordinates(deliveryLat, deliveryLng);
+          console.log("🍲 Found active order:", activeOrder.orderCode);
           
           const activeOrderData = {
-            orderId: activeOrder._id,
-            order_id: activeOrder.order_id,
+            orderId: activeOrder.orderId,
+            order_id: activeOrder.orderCode,
             restaurantLocation: {
-              name: activeOrder.restaurant_id.name,
-              address: restaurantAddress || activeOrder.restaurant_id.location.address || 'Restaurant Location',
-              lat: restaurantLat,
-              lng: restaurantLng,
+              name: activeOrder.restaurantName || 'Restaurant',
+              address: (typeof activeOrder.restaurantLocation === 'object' && activeOrder.restaurantLocation?.address) || 'Restaurant Location',
+              lat: (typeof activeOrder.restaurantLocation === 'object' && activeOrder.restaurantLocation?.lat) || 0,
+              lng: (typeof activeOrder.restaurantLocation === 'object' && activeOrder.restaurantLocation?.lng) || 0,
             },
             deliveryLocation: {
-              lat: deliveryLat,
-              lng: deliveryLng,
-              address: deliveryAddress || 'Delivery Location',
+              lat: (typeof activeOrder.deliveryLocation === 'object' && activeOrder.deliveryLocation?.lat) || 0,
+              lng: (typeof activeOrder.deliveryLocation === 'object' && activeOrder.deliveryLocation?.lng) || 0,
+              address: (typeof activeOrder.deliveryLocation === 'object' && activeOrder.deliveryLocation?.address) || 'Delivery Location',
             },
             deliveryFee: activeOrder.deliveryFee || 0,
             tip: activeOrder.tip || 0,
-            grandTotal: activeOrder.totalPrice || 0,
-            orderStatus: activeOrder.orderStatus,
-            verificationCode: activeOrder.deliveryVerificationCode,
-            userPhone: activeOrder.userId?.phone,
+            grandTotal: activeOrder.grandTotal || 0,
+            orderStatus: 'Cooked', // Assume all orders are ready
+            verificationCode: 'N/A', // Not provided in this API response
+            userPhone: 'N/A',
             createdAt: activeOrder.createdAt,
             customer: {
               name: 'Customer',
-              phone: activeOrder.userId?.phone,
+              phone: 'N/A',
             },
             items: [
               { name: 'Order Items', quantity: 1 }
             ],
             specialInstructions: 'Please handle with care',
-            geocodingStatus: {
-              restaurant: restaurantAddress ? 'completed' : 'failed',
-              delivery: deliveryAddress ? 'completed' : 'failed'
-            }
           };
 
           setState((prev) => ({
@@ -702,6 +771,53 @@ export const DeliveryProvider = ({ children }) => {
     setState((prev) => ({ ...prev, newOrderNotification: false }));
   }, []);
 
+  // 🧹 Clear all delivery data (for logout)
+  const clearDeliveryData = useCallback(async () => {
+    try {
+      console.log('🧹 Clearing delivery data...');
+      
+      // Disconnect socket
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      
+      // Clear stored order data
+      await AsyncStorage.removeItem(STORAGE_KEYS.ACCEPTED_ORDER);
+      await AsyncStorage.removeItem(STORAGE_KEYS.ORDER_TIMESTAMP);
+      
+      // Reset state
+      setState((prev) => ({
+        ...prev,
+        availableOrders: [],
+        availableOrdersCount: 0,
+        activeOrder: null,
+        pendingOrderPopup: null,
+        showOrderModal: false,
+        isConnected: false,
+        isOnline: false,
+        orderHistory: [],
+        socket: null,
+        broadcastMessages: [],
+        newOrderNotification: false,
+        isLoadingOrders: false,
+        ordersError: null,
+        acceptedOrder: null,
+        storedOrder: null,
+        isLoadingStoredOrder: false,
+        deliveryAnalytics: null,
+        isLoadingHistory: false,
+        historyError: null,
+        isLoadingActiveOrder: false,
+        activeOrderError: null,
+      }));
+      
+      console.log('✅ Delivery data cleared');
+    } catch (error) {
+      console.error('❌ Error clearing delivery data:', error);
+    }
+  }, []);
+
   const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
     const R = 6371; // km
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -732,7 +848,7 @@ export const DeliveryProvider = ({ children }) => {
     try {
       setState((prev) => ({ ...prev, isLoadingOrders: true, ordersError: null }));
       
-      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan', {
+      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/orders/available-cooked', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -745,64 +861,49 @@ export const DeliveryProvider = ({ children }) => {
       if (response.ok && data.status === 'success') {
         console.log("✅ Orders fetched successfully:", data.data.length, "orders");
         
-        // Filter orders to show only 'Cooked' and 'Delivering' status for dashboard
+        // Since the API doesn't include orderStatus, we'll show all orders
+        // In a real scenario, you'd filter by status, but for now show all available orders
         const availableOrders = data.data.filter(order => 
-          order.orderStatus === 'Cooked' || order.orderStatus === 'Delivering'
+          order.orderId && order.orderCode // Just ensure we have valid order data
         );
         
         console.log("📋 Available orders for dashboard:", availableOrders.length, "orders");
         
-        // Transform API data to match our expected format with reverse geocoding
-        const transformedOrders = await Promise.all(
-          availableOrders.map(async (order, index) => {
-            // Get restaurant address from coordinates
-            const restaurantLat = order.restaurant_id.location.coordinates[1];
-            const restaurantLng = order.restaurant_id.location.coordinates[0];
-            console.log(`🌍 Geocoding restaurant: ${restaurantLat}, ${restaurantLng}`);
-            const restaurantAddress = await getAddressFromCoordinates(restaurantLat, restaurantLng);
-            console.log(`📍 Restaurant address: ${restaurantAddress || 'Failed'}`);
-            
-            // Get delivery address from coordinates
-            const deliveryLat = order.location.lat;
-            const deliveryLng = order.location.lng;
-            console.log(`🌍 Geocoding delivery: ${deliveryLat}, ${deliveryLng}`);
-            const deliveryAddress = await getAddressFromCoordinates(deliveryLat, deliveryLng);
-            console.log(`📍 Delivery address: ${deliveryAddress || 'Failed'}`);
-            
-            return {
-              orderId: order._id, // Use real orderId from API
-              order_id: order.order_id, // Use the actual order_id from API
-              restaurantLocation: {
-                name: order.restaurant_id.name,
-                address: restaurantAddress || order.restaurant_id.location.address || 'Restaurant Location',
-                lat: restaurantLat,
-                lng: restaurantLng,
-              },
-              deliveryLocation: {
-                lat: deliveryLat,
-                lng: deliveryLng,
-                address: deliveryAddress || 'Delivery Location',
-              },
-              deliveryFee: order.deliveryFee || 0, // Use real delivery fee from API
-              tip: order.tip || 0, // Use real tip from API
-              grandTotal: order.totalPrice || 0, // Use real total price from API
-              createdAt: new Date().toISOString(),
-              customer: {
-                name: 'Customer', // We don't have name from API
-                phone: order.userPhone, // We have phone but won't display it
-              },
-              items: [
-                { name: 'Order Items', quantity: 1 } // Default since not in API
-              ],
-              specialInstructions: 'Please handle with care',
-              // Add geocoding status
-              geocodingStatus: {
-                restaurant: restaurantAddress ? 'completed' : 'failed',
-                delivery: deliveryAddress ? 'completed' : 'failed'
-              }
-            };
-          })
-        );
+        // Transform API data to match our expected format
+        const transformedOrders = availableOrders.map((order, index) => {
+          console.log(`🔄 Transforming order ${index + 1}:`, order.orderCode);
+          console.log('📍 Restaurant Location structure:', order.restaurantLocation);
+          console.log('📍 Delivery Location structure:', order.deliveryLocation);
+          
+          return {
+            orderId: order.orderId, // Use orderId from API
+            order_id: order.orderCode, // Use orderCode as order_id
+            restaurantLocation: {
+              name: order.restaurantName || 'Restaurant',
+              address: (typeof order.restaurantLocation === 'object' && order.restaurantLocation?.address) || 'Restaurant Location',
+              lat: (typeof order.restaurantLocation === 'object' && order.restaurantLocation?.lat) || 0,
+              lng: (typeof order.restaurantLocation === 'object' && order.restaurantLocation?.lng) || 0,
+            },
+            deliveryLocation: {
+              lat: (typeof order.deliveryLocation === 'object' && order.deliveryLocation?.lat) || 0,
+              lng: (typeof order.deliveryLocation === 'object' && order.deliveryLocation?.lng) || 0,
+              address: (typeof order.deliveryLocation === 'object' && order.deliveryLocation?.address) || 'Delivery Location',
+            },
+            deliveryFee: order.deliveryFee || 0,
+            tip: order.tip || 0,
+            grandTotal: order.grandTotal || 0,
+            createdAt: order.createdAt || new Date().toISOString(),
+            customer: {
+              name: 'Customer',
+              phone: 'N/A',
+            },
+            items: [
+              { name: 'Order Items', quantity: 1 }
+            ],
+            specialInstructions: 'Please handle with care',
+            orderStatus: 'Cooked', // Assume all orders from this endpoint are ready
+          };
+        });
 
         setState((prev) => ({
           ...prev,
@@ -1260,6 +1361,8 @@ export const DeliveryProvider = ({ children }) => {
         calculateDeliveryAnalytics,
         // Active order functions
         fetchActiveOrder,
+        // Cleanup functions
+        clearDeliveryData,
       }}
     >
       {children}

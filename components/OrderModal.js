@@ -14,7 +14,7 @@ import {
   DollarSign, 
   Clock, 
   Navigation, 
-  
+  Package,
   User,
   Phone,
   X,
@@ -73,7 +73,13 @@ export default function OrderModal({
   const [restaurantAddress, setRestaurantAddress] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [loadingAddresses, setLoadingAddresses] = useState(false);
+
   const [acceptingOrder, setAcceptingOrder] = useState(false);
+
+  // Early return if no order data
+  if (!visible || !order) {
+    return null;
+  }
 
   // Fetch addresses when order changes
   useEffect(() => {
@@ -182,7 +188,7 @@ export default function OrderModal({
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerContent}>
-                <Pac5kage color="#3B82F6" size={24} />
+                <Package color="#3B82F6" size={24} />
                 <Text style={styles.headerTitle}>New Order Received!</Text>
               </View>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>

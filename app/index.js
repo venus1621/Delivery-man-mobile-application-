@@ -12,33 +12,40 @@ export default function IndexScreen() {
 
   useEffect(() => {
     if (!isLoading) {
-
       if (isAuthenticated) {
         // If authenticated, go to dashboard
-        router.replace(DashboardScreen);
+        router.replace('/tabs/dashboard');
       } else {
         // Always start with login page when not authenticated
-        router.replace(LoginScreen);
+        router.replace('/login');
       }
     }
   }, [isAuthenticated, isLoading]);
 
-  
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={['#1E40AF', '#3B82F6']}
+          style={styles.gradient}
+        >
+          <View style={styles.logoContainer}>
+            <Truck color="#FFFFFF" size={48} />
+          </View>
+          <ActivityIndicator 
+            size="large" 
+            color="#FFFFFF" 
+            style={styles.loader}
+          />
+        </LinearGradient>
+      </View>
+    );
+  }
+
+  // This should not be reached due to the useEffect above, but just in case
   return (
     <View style={styles.container}>
-      {/* <LinearGradient
-        colors={['#1E40AF', '#3B82F6']}
-        style={styles.gradient}
-      >
-        <View style={styles.logoContainer}>
-          <Truck color="#FFFFFF" size={48} />
-        </View>r
-        <ActivityIndicator 
-          size="large" 
-          color="#FFFFFF" 
-          style={styles.loader}
-        />
-      </LinearGradient> */}
       <LoginScreen />
     </View>
   );

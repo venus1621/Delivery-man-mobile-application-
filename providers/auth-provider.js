@@ -133,16 +133,21 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     try {
       console.log('🚪 Logging out user...');
       
+      // Clear all stored data
       await Promise.all([
         AsyncStorage.removeItem('authToken'),
         AsyncStorage.removeItem('userId'),
         AsyncStorage.removeItem('userRole'),
         AsyncStorage.removeItem('userProfile'),
         AsyncStorage.removeItem('isOnline'),
+        // Clear delivery-related stored data
+        AsyncStorage.removeItem('delivery_accepted_order'),
+        AsyncStorage.removeItem('delivery_order_timestamp'),
       ]);
 
       console.log('🧹 All stored data cleared');
 
+      // Update auth state
       setState({
         isAuthenticated: false,
         isLoading: false,
@@ -152,9 +157,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         user: null,
       });
 
+      // Navigate to login screen
       router.replace('/login');
+      
+      console.log('✅ Logout completed successfully');
     } catch (error) {
-      console.error('Error during logout:', error);
+      console.error('❌ Error during logout:', error);
+      // Even if there's an error, try to navigate to login
+      router.replace('/login');
     }
   }, []);
 

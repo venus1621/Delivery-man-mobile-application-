@@ -1,120 +1,134 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  ScrollView,
+  TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  ScrollView,
+  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { DollarSign, Clock, MapPin, TrendingUp, Package, Star, AlertCircle } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { 
+  Clock, 
+  DollarSign, 
+  MapPin, 
+  CheckCircle, 
+  TrendingUp,
+  Calendar,
+  Filter,
+  Search
+} from 'lucide-react-native';
 import { useDelivery } from '../../providers/delivery-provider';
+import { useAuth } from '../../providers/auth-provider';
 
 export default function HistoryScreen() {
   const { 
     orderHistory, 
     deliveryAnalytics, 
-    fetchDeliveryHistory, 
-    isLoadingHistory, 
+    fetchDeliveryHistory,
+    isLoadingHistory,
     historyError 
   } = useDelivery();
+  
+  const { user } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState('all'); // all, today, week, month
+  const [sortBy, setSortBy] = useState('date'); // date, earnings, distance
 
-  // Fetch delivery history when component mounts
   useEffect(() => {
     fetchDeliveryHistory();
   }, [fetchDeliveryHistory]);
 
-  const handleRefresh = () => {
-    fetchDeliveryHistory();
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchDeliveryHistory();
+    setRefreshing(false);
   };
 
-  // Use analytics data if available, otherwise calculate from orderHistory
-  const totalEarnings = deliveryAnalytics?.totalEarnings || orderHistory.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0);
-  const totalDeliveries = deliveryAnalytics?.totalDeliveries || orderHistory.length;
+  const filteredOrders = orderHistory.filter(order => {
+    const orderDate = new Date(order.createdAt);
+    const now = new Date();
+    
+    switch (selectedPeriod) {
+      case 'today':
+        return orderDate.toDateString() === now.toDateString();
+      case 'week':
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        return orderDate >= weekAgo;
+      case 'month':
+        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        return orderDate >= monthAgo;
+      default:
+        return true;
+    }
+  }).sort((a, b) => {
+    switch (sortBy) {
+      case 'earnings':
+        return (b.deliveryFee + b.tip) - (a.deliveryFee + a.tip);
+      case 'date':
+      default:
+        return new Date(b.createdAt) - new Date(a.createdAt);
+    }
+  });
 
-  const renderHistoryItem = ({ item }) => (
-    <View style={styles.historyCard}>
-      <View style={styles.historyHeader}>
-        <Text style={styles.orderId}>#{item.order_id}</Text>
-        <View style={styles.amountContainer}>
-          <DollarSign color="#10B981" size={16} />
-          <Text style={styles.amount}>ETB {((item.deliveryFee || 0) + (item.tip || 0)).toFixed(2)}</Text>
-        </View>
-      </View>
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
 
-      <View style={styles.orderDetails}>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Restaurant:</Text>
-          <Text style={styles.detailValue}>{item.restaurantLocation?.name || 'Unknown'}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Delivery Fee:</Text>
-          <Text style={styles.detailValue}>ETB {(item.deliveryFee || 0).toFixed(2)}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Tip:</Text>
-          <Text style={styles.detailValue}>ETB {(item.tip || 0).toFixed(2)}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Status:</Text>
-          <Text style={[styles.detailValue, styles.statusText, 
-            item.orderStatus === 'Completed' ? styles.completedStatus : 
-            item.orderStatus === 'Cancelled' ? styles.cancelledStatus : 
-            styles.inProgressStatus]}>
-            {item.orderStatus || 'Unknown'}
-          </Text>
-        </View>
-      </View>
+  const formatTime = (dateString) => {
+    return new Date(dateString).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
 
-      <View style={styles.locationInfo}>
-        <MapPin color="#6B7280" size={14} />
-        <Text style={styles.locationText} numberOfLines={2}>
-          {item.deliveryLocation?.address || 'Delivery Address'}
-        </Text>
-      </View>
+  const getTotalEarnings = () => {
+    return filteredOrders.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0);
+  };
 
-      <View style={styles.historyFooter}>
-        <View style={styles.timeContainer}>
-          <Clock color="#6B7280" size={14} />
-          <Text style={styles.timeText}>
-            {new Date(item.createdAt).toLocaleDateString()} at{' '}
-            {new Date(item.createdAt).toLocaleTimeString([], { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })}
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
+  const getTotalDeliveries = () => {
+    return filteredOrders.length;
+  };
 
-  const renderAnalyticsCard = (title, value, icon, color, subtitle) => (
-    <LinearGradient
-      colors={[color, color + '80']}
-      style={styles.analyticsCard}
-    >
-      <View style={styles.analyticsIcon}>
-        {icon}
-      </View>
-      <View style={styles.analyticsContent}>
-        <Text style={styles.analyticsValue}>{value}</Text>
-        <Text style={styles.analyticsTitle}>{title}</Text>
-        {subtitle && <Text style={styles.analyticsSubtitle}>{subtitle}</Text>}
-      </View>
-    </LinearGradient>
-  );
+  const showFilterOptions = () => {
+    Alert.alert(
+      'Filter Options',
+      'Choose how to sort your delivery history:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sort by Date (Newest First)', onPress: () => setSortBy('date') },
+        { text: 'Sort by Earnings (Highest First)', onPress: () => setSortBy('earnings') },
+      ]
+    );
+  };
 
-  if (isLoadingHistory) {
+  const showPeriodOptions = () => {
+    Alert.alert(
+      'Time Period',
+      'Choose the time period to view:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'All Time', onPress: () => setSelectedPeriod('all') },
+        { text: 'Today', onPress: () => setSelectedPeriod('today') },
+        { text: 'This Week', onPress: () => setSelectedPeriod('week') },
+        { text: 'This Month', onPress: () => setSelectedPeriod('month') },
+      ]
+    );
+  };
+
+  if (isLoadingHistory && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Delivery History</Text>
-        </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#10B981" />
+          <ActivityIndicator size="large" color="#1E40AF" />
           <Text style={styles.loadingText}>Loading delivery history...</Text>
         </View>
       </SafeAreaView>
@@ -124,13 +138,15 @@ export default function HistoryScreen() {
   if (historyError) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Delivery History</Text>
-        </View>
         <View style={styles.errorContainer}>
-          <AlertCircle color="#EF4444" size={64} />
-          <Text style={styles.errorTitle}>Error Loading History</Text>
-          <Text style={styles.errorText}>{historyError}</Text>
+          <Text style={styles.errorTitle}>Unable to Load History</Text>
+          <Text style={styles.errorMessage}>{historyError}</Text>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={handleRefresh}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -138,93 +154,169 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>📊 Delivery Analytics</Text>
+        <View>
+          <Text style={styles.title}>Delivery History</Text>
+          <Text style={styles.subtitle}>
+            {selectedPeriod === 'all' ? 'All deliveries' : 
+             selectedPeriod === 'today' ? 'Today\'s deliveries' :
+             selectedPeriod === 'week' ? 'This week\'s deliveries' :
+             'This month\'s deliveries'}
+          </Text>
+        </View>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={showPeriodOptions}
+          >
+            <Calendar color="#1E40AF" size={20} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.headerButton}
+            onPress={showFilterOptions}
+          >
+            <Filter color="#1E40AF" size={20} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView 
-        style={styles.scrollView}
-        refreshControl={
-          <RefreshControl
-            refreshing={isLoadingHistory}
-            onRefresh={handleRefresh}
-            colors={['#10B981']}
-          />
-        }
-      >
-        {/* Analytics Cards */}
-        {deliveryAnalytics && (
-          <View style={styles.analyticsContainer}>
-            <View style={styles.analyticsRow}>
-              {renderAnalyticsCard(
-                'Total Deliveries',
-                deliveryAnalytics.totalDeliveries,
-                <Package color="#FFFFFF" size={24} />,
-                '#10B981'
-              )}
-              {renderAnalyticsCard(
-                'Total Earnings',
-                `ETB ${deliveryAnalytics.totalEarnings.toFixed(2)}`,
-                <DollarSign color="#FFFFFF" size={24} />,
-                '#3B82F6'
-              )}
-            </View>
-            
-            <View style={styles.analyticsRow}>
-              {renderAnalyticsCard(
-                'Delivery Fees',
-                `ETB ${deliveryAnalytics.totalDeliveryFees.toFixed(2)}`,
-                <TrendingUp color="#FFFFFF" size={24} />,
-                '#F59E0B'
-              )}
-              {renderAnalyticsCard(
-                'Total Tips',
-                `ETB ${deliveryAnalytics.totalTips.toFixed(2)}`,
-                <Star color="#FFFFFF" size={24} />,
-                '#8B5CF6'
-              )}
-            </View>
+      {/* Summary Cards */}
+      <View style={styles.summaryContainer}>
+        <LinearGradient
+          colors={['#10B981', '#059669']}
+          style={styles.summaryCard}
+        >
+          <DollarSign color="#FFFFFF" size={24} />
+          <Text style={styles.summaryNumber}>ETB {getTotalEarnings().toFixed(2)}</Text>
+          <Text style={styles.summaryLabel}>Total Earnings</Text>
+        </LinearGradient>
 
-            <View style={styles.analyticsRow}>
-              {renderAnalyticsCard(
-                'Avg Order Value',
-                `ETB ${deliveryAnalytics.averageOrderValue.toFixed(2)}`,
-                <TrendingUp color="#FFFFFF" size={24} />,
-                '#EF4444'
-              )}
-              {renderAnalyticsCard(
-                'Completed Orders',
-                deliveryAnalytics.completedOrders,
-                <Package color="#FFFFFF" size={24} />,
-                '#10B981'
-              )}
+        <LinearGradient
+          colors={['#3B82F6', '#1D4ED8']}
+          style={styles.summaryCard}
+        >
+          <CheckCircle color="#FFFFFF" size={24} />
+          <Text style={styles.summaryNumber}>{getTotalDeliveries()}</Text>
+          <Text style={styles.summaryLabel}>Completed Deliveries</Text>
+        </LinearGradient>
+      </View>
+
+      {/* Analytics Card */}
+      {deliveryAnalytics && (
+        <View style={styles.analyticsContainer}>
+          <Text style={styles.analyticsTitle}>Performance Overview</Text>
+          <View style={styles.analyticsGrid}>
+            <View style={styles.analyticsItem}>
+              <Text style={styles.analyticsValue}>
+                {deliveryAnalytics.averageDeliveryFee?.toFixed(2) || '0.00'}
+              </Text>
+              <Text style={styles.analyticsLabel}>Avg. Delivery Fee</Text>
+            </View>
+            <View style={styles.analyticsItem}>
+              <Text style={styles.analyticsValue}>
+                {deliveryAnalytics.averageTip?.toFixed(2) || '0.00'}
+              </Text>
+              <Text style={styles.analyticsLabel}>Avg. Tip</Text>
+            </View>
+            <View style={styles.analyticsItem}>
+              <Text style={styles.analyticsValue}>
+                {deliveryAnalytics.averageDistance?.toFixed(1) || '0.0'}km
+              </Text>
+              <Text style={styles.analyticsLabel}>Avg. Distance</Text>
+            </View>
+            <View style={styles.analyticsItem}>
+              <Text style={styles.analyticsValue}>
+                {deliveryAnalytics.averageTime || '0'}min
+              </Text>
+              <Text style={styles.analyticsLabel}>Avg. Time</Text>
             </View>
           </View>
-        )}
-
-        {/* Order History */}
-        <View style={styles.historySection}>
-          <Text style={styles.sectionTitle}>📋 Order History</Text>
-          
-          {orderHistory.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Clock color="#9CA3AF" size={64} />
-              <Text style={styles.emptyTitle}>No Delivery History</Text>
-              <Text style={styles.emptyText}>
-                Your completed deliveries will appear here
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={orderHistory}
-              renderItem={renderHistoryItem}
-              keyExtractor={(item) => item.orderId}
-              contentContainerStyle={styles.listContainer}
-              showsVerticalScrollIndicator={false}
-              scrollEnabled={false}
-            />
-          )}
         </View>
+      )}
+
+      {/* Orders List */}
+      <ScrollView 
+        style={styles.ordersList}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={['#1E40AF']}
+            tintColor="#1E40AF"
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        {filteredOrders.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <CheckCircle color="#6B7280" size={48} />
+            <Text style={styles.emptyTitle}>No Deliveries Found</Text>
+            <Text style={styles.emptyMessage}>
+              {selectedPeriod === 'all' 
+                ? "You haven't completed any deliveries yet."
+                : `No deliveries found for ${selectedPeriod}.`
+              }
+            </Text>
+          </View>
+        ) : (
+          filteredOrders.map((order, index) => (
+            <TouchableOpacity 
+              key={order.orderId || index}
+              style={styles.orderCard}
+              onPress={() => {
+                // Navigate to order details if needed
+                console.log('Order selected:', order.orderId);
+              }}
+            >
+              <View style={styles.orderHeader}>
+                <View style={styles.orderInfo}>
+                  <Text style={styles.orderId}>#{order.order_id || order.orderId}</Text>
+                  <Text style={styles.orderDate}>{formatDate(order.createdAt)}</Text>
+                </View>
+                <View style={styles.orderEarnings}>
+                  <Text style={styles.earningsAmount}>
+                    ETB {((order.deliveryFee || 0) + (order.tip || 0)).toFixed(2)}
+                  </Text>
+                  <Text style={styles.earningsLabel}>Total</Text>
+                </View>
+              </View>
+
+              <View style={styles.orderDetails}>
+                <View style={styles.detailRow}>
+                  <MapPin color="#6B7280" size={16} />
+                  <Text style={styles.detailText} numberOfLines={1}>
+                    {order.restaurantLocation?.name || 'Restaurant'}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Clock color="#6B7280" size={16} />
+                  <Text style={styles.detailText}>
+                    {formatTime(order.createdAt)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.orderBreakdown}>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Delivery Fee:</Text>
+                  <Text style={styles.breakdownValue}>ETB {order.deliveryFee?.toFixed(2) || '0.00'}</Text>
+                </View>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Tip:</Text>
+                  <Text style={styles.breakdownValue}>ETB {order.tip?.toFixed(2) || '0.00'}</Text>
+                </View>
+              </View>
+
+              <View style={styles.orderStatus}>
+                <View style={[styles.statusBadge, styles.completedBadge]}>
+                  <CheckCircle color="#10B981" size={14} />
+                  <Text style={styles.statusText}>Completed</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -234,18 +326,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  scrollView: {
-    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -261,174 +341,136 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 40,
   },
   errorTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#EF4444',
-    marginTop: 16,
+    color: '#1F2937',
     marginBottom: 8,
   },
-  errorText: {
+  errorMessage: {
     fontSize: 16,
     color: '#6B7280',
     textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 24,
   },
-  analyticsContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
+  retryButton: {
+    backgroundColor: '#1E40AF',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
   },
-  analyticsRow: {
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
-  analyticsCard: {
-    flex: 1,
-    marginHorizontal: 4,
-    padding: 16,
-    borderRadius: 12,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  headerActions: {
     flexDirection: 'row',
+    gap: 12,
+  },
+  headerButton: {
+    padding: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+  },
+  summaryContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    gap: 12,
+  },
+  summaryCard: {
+    flex: 1,
+    padding: 20,
+    borderRadius: 16,
     alignItems: 'center',
   },
-  analyticsIcon: {
-    marginRight: 12,
+  summaryNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginTop: 8,
+    marginBottom: 4,
   },
-  analyticsContent: {
+  summaryLabel: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    opacity: 0.9,
+    textAlign: 'center',
+  },
+  analyticsContainer: {
+    margin: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  analyticsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  analyticsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  analyticsItem: {
     flex: 1,
+    minWidth: '45%',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
   },
   analyticsValue: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  analyticsTitle: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.9,
-  },
-  analyticsSubtitle: {
-    fontSize: 10,
-    color: '#FFFFFF',
-    opacity: 0.7,
-  },
-  historySection: {
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 16,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    padding: 20,
-    borderRadius: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1F2937',
+    color: '#1E40AF',
     marginBottom: 4,
   },
-  statLabel: {
-    fontSize: 14,
+  analyticsLabel: {
+    fontSize: 12,
     color: '#6B7280',
     textAlign: 'center',
   },
-  listContainer: {
+  ordersList: {
+    flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  historyCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  orderId: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  amountContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  amount: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#10B981',
-  },
-  locationInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  locationText: {
-    fontSize: 14,
-    color: '#6B7280',
-    flex: 1,
-  },
-  historyFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  timeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    flex: 1,
-  },
-  timeText: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  statusBadge: {
-    backgroundColor: '#D1FAE5',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#059669',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingVertical: 60,
   },
   emptyTitle: {
     fontSize: 20,
@@ -437,52 +479,108 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
   },
-  emptyText: {
+  emptyMessage: {
     fontSize: 16,
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 24,
+    paddingHorizontal: 40,
+  },
+  orderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  orderInfo: {
+    flex: 1,
+  },
+  orderId: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  orderDate: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  orderEarnings: {
+    alignItems: 'flex-end',
+  },
+  earningsAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#10B981',
+  },
+  earningsLabel: {
+    fontSize: 12,
+    color: '#6B7280',
   },
   orderDetails: {
-    marginVertical: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E5E7EB',
+    marginBottom: 12,
   },
   detailRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginVertical: 4,
+    marginBottom: 6,
   },
-  detailLabel: {
+  detailText: {
     fontSize: 14,
     color: '#6B7280',
-    fontWeight: '500',
+    marginLeft: 8,
+    flex: 1,
   },
-  detailValue: {
+  orderBreakdown: {
+    marginBottom: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  breakdownLabel: {
     fontSize: 14,
-    color: '#1F2937',
+    color: '#6B7280',
+  },
+  breakdownValue: {
+    fontSize: 14,
     fontWeight: '600',
+    color: '#1F2937',
+  },
+  orderStatus: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  completedBadge: {
+    backgroundColor: '#D1FAE5',
   },
   statusText: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
     fontSize: 12,
-    fontWeight: 'bold',
-  },
-  completedStatus: {
-    backgroundColor: '#D1FAE5',
-    color: '#065F46',
-  },
-  cancelledStatus: {
-    backgroundColor: '#FEE2E2',
-    color: '#991B1B',
-  },
-  inProgressStatus: {
-    backgroundColor: '#FEF3C7',
-    color: '#92400E',
+    fontWeight: '600',
+    color: '#10B981',
+    marginLeft: 4,
   },
 });
