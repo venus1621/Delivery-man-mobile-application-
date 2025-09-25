@@ -11,8 +11,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { 
   MapPin, 
-  DollarSign, 
-  Clock, 
   Navigation, 
   Package,
   User,
@@ -22,45 +20,7 @@ import {
   AlertCircle
 } from 'lucide-react-native';
 import { useAuth } from '../providers/auth-provider';
-
-// Function to get address from coordinates using reverse geocoding
-const getAddressFromCoordinates = async (lat, lng) => {
-  try {
-    const response = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=YOUR_GOOGLE_MAPS_API_KEY`
-    );
-    const data = await response.json();
-    
-    if (data.results && data.results.length > 0) {
-      return data.results[0].formatted_address;
-    }
-    return null;
-  } catch (error) {
-    console.error('Error fetching address:', error);
-    return null;
-  }
-};
-
-// Fallback function using OpenStreetMap (free, no API key required)
-const getAddressFromOSM = async (lat, lng) => {
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
-    );
-    const data = await response.json();
-    
-    if (data.display_name) {
-      // Extract a more user-friendly address
-      const addressParts = data.display_name.split(', ');
-      // Take the first 3-4 parts for a cleaner address
-      return addressParts.slice(0, 4).join(', ');
-    }
-    return null;
-  } catch (error) {
-    console.error('Error fetching address from OSM:', error);
-    return null;
-  }
-};
+import { useDelivery } from '../providers/delivery-provider';
 
 export default function OrderModal({ 
   visible, 
@@ -70,10 +30,7 @@ export default function OrderModal({
   onClose 
 }) {
   const { userId } = useAuth();
-  const [restaurantAddress, setRestaurantAddress] = useState('');
-  const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [loadingAddresses, setLoadingAddresses] = useState(false);
-
+  const { acceptOrder } = useDelivery();
   const [acceptingOrder, setAcceptingOrder] = useState(false);
 
   // Early return if no order data
@@ -81,46 +38,16 @@ export default function OrderModal({
     return null;
   }
 
-  // Fetch addresses when order changes
+  // Log order data when modal opens
   useEffect(() => {
     if (order && visible) {
-      fetchAddresses();
+      console.log("📦 OrderModal received order:", order);
     }
   }, [order, visible]);
 
-  const fetchAddresses = async () => {
-    if (!order) return;
-    
-    setLoadingAddresses(true);
-    
-    try {
-      // Fetch restaurant address
-      if (order.restaurantLocation?.lat && order.restaurantLocation?.lng) {
-        const restaurantAddr = await getAddressFromOSM(
-          order.restaurantLocation.lat, 
-          order.restaurantLocation.lng
-        );
-        setRestaurantAddress(restaurantAddr);
-      }
-      
-      // Fetch delivery address
-      if (order.deliveryLocation?.lat && order.deliveryLocation?.lng) {
-        const deliveryAddr = await getAddressFromOSM(
-          order.deliveryLocation.lat, 
-          order.deliveryLocation.lng
-        );
-        setDeliveryAddress(deliveryAddr);
-      }
-    } catch (error) {
-      console.error('Error fetching addresses:', error);
-    } finally {
-      setLoadingAddresses(false);
-    }
-  };
-
   if (!order) return null;
 
-     const handleAccept = async () => {
+  const handleAccept = async () => {
     if (!userId) {
       Alert.alert('Error', 'User ID not found. Please log in again.');
       return;
@@ -142,9 +69,12 @@ export default function OrderModal({
           onPress: async () => {
             setAcceptingOrder(true);
             try {
-              // Call the onAccept function with the order data
-              // The delivery provider will handle the Socket.IO communication
-              await onAccept(order);
+              // Use the acceptOrder function from delivery provider
+              const success = await acceptOrder(order.orderId, userId);
+              if (success) {
+                // Close the modal on successful acceptance
+                onClose();
+              }
             } catch (error) {
               console.error('Error accepting order:', error);
               Alert.alert('Error', 'Failed to accept order. Please try again.');
@@ -197,121 +127,92 @@ export default function OrderModal({
             </View>
 
             <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                             {/* Order Amount */}
-               <View style={styles.orderHeader}>
-                 <View style={styles.amountContainer}>
-                   <DollarSign color="#10B981" size={20} />
-                   <Text style={styles.orderAmount}>
-                     ETB {order.grandTotal?.toFixed(2) || '0.00'}
-                   </Text>
-                 </View>
-               </View>
+              {/* Order Header */}
+              <View style={styles.orderHeader}>
+                <View style={styles.orderInfo}>
+                  <Text style={styles.orderId}>#{order.orderCode || order.order_id || order.orderId}</Text>
+                  <Text style={styles.orderTime}>
+                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'Today'} • {order.createdAt ? new Date(order.createdAt).toLocaleTimeString([], { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    }) : 'Now'}
+                  </Text>
+                </View>
+                <View style={styles.orderEarnings}>
+                  <Text style={styles.earningsAmount}>
+                    ETB {order.grandTotal?.toFixed(2) || '0.00'}
+                  </Text>
+                  <Text style={styles.earningsLabel}>Grand Total</Text>
+                </View>
+              </View>
 
-              {/* Order Time */}
-              <View style={styles.timeContainer}>
-                <Clock color="#6B7280" size={16} />
-                <Text style={styles.timeText}>
-                  {new Date(order.createdAt || Date.now()).toLocaleTimeString([], { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                  })}
-                </Text>
+              {/* Restaurant Location */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Restaurant Location</Text>
+                <View style={styles.detailRow}>
+                  <MapPin color="#6B7280" size={16} />
+                  <Text style={styles.detailText}>
+                    Lat: {order.restaurantLocation?.lat?.toFixed(6) || 'N/A'}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <MapPin color="#6B7280" size={16} />
+                  <Text style={styles.detailText}>
+                    Lng: {order.restaurantLocation?.lng?.toFixed(6) || 'N/A'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Delivery Location */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Delivery Location</Text>
+                <View style={styles.detailRow}>
+                  <Navigation color="#6B7280" size={16} />
+                  <Text style={styles.detailText}>
+                    Lat: {order.deliveryLocation?.lat?.toFixed(6) || 'N/A'}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Navigation color="#6B7280" size={16} />
+                  <Text style={styles.detailText}>
+                    Lng: {order.deliveryLocation?.lng?.toFixed(6) || 'N/A'}
+                  </Text>
+                </View>
               </View>
 
               {/* Customer Information */}
-              {order.customer && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Customer Information</Text>
-                  <View style={styles.customerInfo}>
-                    <View style={styles.customerRow}>
-                      <User color="#6B7280" size={16} />
-                      <Text style={styles.customerText}>
-                        {order.customer.name || 'Customer Name'}
-                      </Text>
-                    </View>
-                    {order.customer.phone && (
-                      <View style={styles.customerRow}>
-                        <Phone color="#6B7280" size={16} />
-                        <Text style={styles.customerText}>
-                          {order.customer.phone}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              )}
-
-                             {/* Restaurant Location */}
-               <View style={styles.section}>
-                 <Text style={styles.sectionTitle}>Pickup Location</Text>
-                 <View style={styles.locationContainer}>
-                   <View style={styles.locationRow}>
-                     <MapPin color="#EF4444" size={16} />
-                     <Text style={styles.locationText}>Restaurant</Text>
-                   </View>
-                   <Text style={styles.locationAddress}>
-                     {loadingAddresses ? 'Loading address...' : 
-                      restaurantAddress || 
-                      order.restaurantLocation?.address || 
-                      `${order.restaurantLocation?.lat?.toFixed(4) || '0'}, ${order.restaurantLocation?.lng?.toFixed(4) || '0'}`}
-                   </Text>
-                 </View>
-               </View>
-
-               {/* Delivery Location */}
-               <View style={styles.section}>
-                 <Text style={styles.sectionTitle}>Delivery Location</Text>
-                 <View style={styles.locationContainer}>
-                   <View style={styles.locationRow}>
-                     <Navigation color="#3B82F6" size={16} />
-                     <Text style={styles.locationText}>Delivery Address</Text>
-                   </View>
-                   <Text style={styles.locationAddress}>
-                     {loadingAddresses ? 'Loading address...' : 
-                      deliveryAddress || 
-                      order.deliveryLocation?.address || 
-                      `${order.deliveryLocation?.lat?.toFixed(4) || '0'}, ${order.deliveryLocation?.lng?.toFixed(4) || '0'}`}
-                   </Text>
-                 </View>
-               </View>
-
-              {/* Order Details */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Order Details</Text>
-                <View style={styles.detailsGrid}>
-                                     <View style={styles.detailItem}>
-                     <Text style={styles.detailLabel}>Delivery Fee</Text>
-                     <Text style={styles.detailValue}>
-                       ETB {order.deliveryFee?.toFixed(2) || '0.00'}
-                     </Text>
-                   </View>
-                   <View style={styles.detailItem}>
-                     <Text style={styles.detailLabel}>Tip</Text>
-                     <Text style={styles.detailValue}>
-                       ETB {order.tip?.toFixed(2) || '0.00'}
-                     </Text>
-                   </View>
-                  <View style={styles.detailItem}>
-                    <Text style={styles.detailLabel}>Items</Text>
-                    <Text style={styles.detailValue}>
-                      {order.items?.length || 0} items
+                <Text style={styles.sectionTitle}>Customer</Text>
+                <View style={styles.customerInfo}>
+                  <View style={styles.customerRow}>
+                    <User color="#6B7280" size={16} />
+                    <Text style={styles.customerText}>
+                      {order.customer?.name || 'Customer'}
+                    </Text>
+                  </View>
+                  <View style={styles.customerRow}>
+                    <Phone color="#6B7280" size={16} />
+                    <Text style={styles.customerText}>
+                      {order.customer?.phone || 'N/A'}
                     </Text>
                   </View>
                 </View>
               </View>
 
               {/* Order Items */}
-              {order.items && order.items.length > 0 && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Order Items</Text>
-                  {order.items.map((item, index) => (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Order Items</Text>
+                {order.items && order.items.length > 0 ? (
+                  order.items.map((item, index) => (
                     <View key={index} style={styles.itemRow}>
                       <Text style={styles.itemName}>{item.name}</Text>
                       <Text style={styles.itemQuantity}>x{item.quantity}</Text>
                     </View>
-                  ))}
-                </View>
-              )}
+                  ))
+                ) : (
+                  <Text style={styles.noItemsText}>No items specified</Text>
+                )}
+              </View>
 
               {/* Special Instructions */}
               {order.specialInstructions && (
@@ -322,6 +223,23 @@ export default function OrderModal({
                   </Text>
                 </View>
               )}
+
+              {/* Order Breakdown */}
+              <View style={styles.orderBreakdown}>
+                <Text style={styles.sectionTitle}>Order Summary</Text>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Delivery Fee:</Text>
+                  <Text style={styles.breakdownValue}>ETB {order.deliveryFee?.toFixed(2) || '0.00'}</Text>
+                </View>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Tip:</Text>
+                  <Text style={styles.breakdownValue}>ETB {order.tip?.toFixed(2) || '0.00'}</Text>
+                </View>
+                <View style={[styles.breakdownRow, styles.totalRow]}>
+                  <Text style={styles.totalLabel}>Grand Total:</Text>
+                  <Text style={styles.totalValue}>ETB {order.grandTotal?.toFixed(2) || '0.00'}</Text>
+                </View>
+              </View>
             </ScrollView>
 
             {/* Action Buttons */}
@@ -404,31 +322,94 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
-     orderHeader: {
-     flexDirection: 'row',
-     justifyContent: 'flex-end',
-     alignItems: 'center',
-     marginVertical: 16,
-   },
-   amountContainer: {
-     flexDirection: 'row',
-     alignItems: 'center',
-     gap: 8,
-   },
-  orderAmount: {
-    fontSize: 24,
+  orderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  orderInfo: {
+    flex: 1,
+  },
+  orderId: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  orderTime: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  orderEarnings: {
+    alignItems: 'flex-end',
+  },
+  earningsAmount: {
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#10B981',
   },
-  timeContainer: {
+  earningsLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  orderDetails: {
+    marginBottom: 12,
+  },
+  detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 8,
     gap: 8,
-    marginBottom: 20,
   },
-  timeText: {
+  detailText: {
+    fontSize: 14,
+    color: '#374151',
+    flex: 1,
+  },
+  orderBreakdown: {
+    marginBottom: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  breakdownLabel: {
     fontSize: 14,
     color: '#6B7280',
+  },
+  breakdownValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  totalRow: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  totalLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  totalValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#10B981',
+  },
+  noItemsText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 16,
   },
   section: {
     marginBottom: 24,
@@ -450,43 +431,6 @@ const styles = StyleSheet.create({
   customerText: {
     fontSize: 14,
     color: '#374151',
-  },
-  locationContainer: {
-    gap: 8,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  locationText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-  },
-  locationAddress: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginLeft: 24,
-    lineHeight: 20,
-  },
-  detailsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  detailItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2937',
   },
   itemRow: {
     flexDirection: 'row',

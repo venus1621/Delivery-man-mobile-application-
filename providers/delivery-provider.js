@@ -114,21 +114,24 @@ export const DeliveryProvider = ({ children }) => {
     // 🍲 New order notifications from backend (based on your notifyDeliveryGroup function)
     socket.on("deliveryMessage", (orderData) => {
       console.log("🚚 New delivery order received:", orderData);
+      console.log("📍 Restaurant Location:", orderData.restaurantLocation);
+      console.log("📍 Delivery Location:", orderData.deliveryLocation);
       
       // Transform the order data to match our expected format
       const transformedOrder = {
         orderId: orderData.orderId,
+        order_id: orderData.orderCode, // Map orderCode to order_id for consistency
         orderCode: orderData.orderCode,
         restaurantLocation: {
           name: orderData.restaurantName,
-          address: orderData.restaurantLocation || 'Restaurant Location',
-          lat: 0, // Will be updated when we fetch full order details
-          lng: 0,
+          address: orderData.restaurantLocation?.address || 'Restaurant Location',
+          lat: orderData.restaurantLocation?.lat || 0,
+          lng: orderData.restaurantLocation?.lng || 0,
         },
         deliveryLocation: {
-          lat: 0, // Will be updated when we fetch full order details
-          lng: 0,
-          address: orderData.deliveryLocation || 'Delivery Location',
+          lat: orderData.deliveryLocation?.lat || 0,
+          lng: orderData.deliveryLocation?.lng || 0,
+          address: orderData.deliveryLocation?.address || 'Delivery Location',
         },
         deliveryFee: orderData.deliveryFee || 0,
         tip: orderData.tip || 0,
@@ -143,6 +146,10 @@ export const DeliveryProvider = ({ children }) => {
         ],
         specialInstructions: 'Please handle with care',
       };
+
+      console.log("🔄 Transformed order:", transformedOrder);
+      console.log("📍 Restaurant coords:", transformedOrder.restaurantLocation.lat, transformedOrder.restaurantLocation.lng);
+      console.log("📍 Delivery coords:", transformedOrder.deliveryLocation.lat, transformedOrder.deliveryLocation.lng);
 
       setState((prev) => ({
         ...prev,

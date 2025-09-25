@@ -56,18 +56,22 @@ export default function OrdersScreen() {
   const handleAcceptOrder = async (order) => {
     Alert.alert(
       'Accept Order',
-      `Do you want to accept this order?\n\nOrder: ${order.order_id || order.orderId}\nRestaurant: ${order.restaurantLocation?.name}\nEarnings: ETB ${((order.deliveryFee || 0) + (order.tip || 0)).toFixed(2)}`,
+      `Do you want to accept this order?\n\nOrder: ${order.order_id || order.orderId}\nRestaurant: ${order.restaurantLocation?.name}\nEarnings: ETB ${order.grandTotal?.toFixed(2) || '0.00'}`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Accept',
           style: 'default',
           onPress: async () => {
-            const success = await acceptOrder(order.orderId, userId);
-            if (success) {
-              Alert.alert('Success', 'Order accepted successfully!');
-              // Refresh the orders list
-              await fetchAvailableOrders();
+            try {
+              const success = await acceptOrder(order.orderId, userId);
+              if (success) {
+                // Refresh the orders list to remove the accepted order
+                await fetchAvailableOrders();
+              }
+            } catch (error) {
+              console.error('Error accepting order:', error);
+              // Error handling is already done in the acceptOrder function
             }
           },
         },
@@ -274,7 +278,7 @@ export default function OrdersScreen() {
                 <View style={styles.detailRow}>
                   <Navigation color="#6B7280" size={16} />
                   <Text style={styles.detailText} numberOfLines={1}>
-                    {order.deliveryLocation?.address || 'Delivery Address'}
+                    {(typeof order.deliveryLocation?.address === 'string' ? order.deliveryLocation.address : null) || 'Delivery Address'}
                   </Text>
                 </View>
                 <View style={styles.detailRow}>

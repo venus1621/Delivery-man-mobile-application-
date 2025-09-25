@@ -96,7 +96,7 @@ export default function OrderDetailsScreen() {
       // You can implement navigation here using expo-location or maps
       Alert.alert(
         'Navigate to Restaurant',
-        `Navigate to ${order.restaurantLocation.name}?\n\nAddress: ${order.restaurantLocation.address}`,
+        `Navigate to ${order.restaurantLocation.name}?\n\nAddress: ${(typeof order.restaurantLocation.address === 'string' ? order.restaurantLocation.address : 'Restaurant Address')}`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Navigate', style: 'default' }
@@ -109,7 +109,7 @@ export default function OrderDetailsScreen() {
     if (order?.deliveryLocation?.lat && order?.deliveryLocation?.lng) {
       Alert.alert(
         'Navigate to Delivery',
-        `Navigate to delivery address?\n\nAddress: ${order.deliveryLocation.address}`,
+        `Navigate to delivery address?\n\nAddress: ${(typeof order.deliveryLocation.address === 'string' ? order.deliveryLocation.address : 'Delivery Address')}`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Navigate', style: 'default' }
@@ -251,7 +251,9 @@ export default function OrderDetailsScreen() {
               <Text style={styles.locationTitle}>Pickup Location</Text>
             </View>
             <Text style={styles.restaurantName}>{order.restaurantLocation?.name}</Text>
-            <Text style={styles.locationAddress}>{order.restaurantLocation?.address}</Text>
+            <Text style={styles.locationAddress}>
+              {(typeof order.restaurantLocation?.address === 'string' ? order.restaurantLocation.address : null) || 'Restaurant Address'}
+            </Text>
             
             <TouchableOpacity 
               style={styles.navigateButton}
@@ -271,7 +273,9 @@ export default function OrderDetailsScreen() {
               <MapPin color="#10B981" size={20} />
               <Text style={styles.locationTitle}>Delivery Location</Text>
             </View>
-            <Text style={styles.locationAddress}>{order.deliveryLocation?.address}</Text>
+            <Text style={styles.locationAddress}>
+              {(typeof order.deliveryLocation?.address === 'string' ? order.deliveryLocation.address : null) || 'Delivery Address'}
+            </Text>
             
             <TouchableOpacity 
               style={[styles.navigateButton, styles.deliveryNavigateButton]}
