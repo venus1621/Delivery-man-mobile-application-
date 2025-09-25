@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 import { useAuth } from '../providers/auth-provider';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Truck } from 'lucide-react-native';
-import DashboardScreen from './tabs/dashboard';
 import LoginScreen from './login';
 
 export default function IndexScreen() {

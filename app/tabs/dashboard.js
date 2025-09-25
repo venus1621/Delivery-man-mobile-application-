@@ -405,109 +405,44 @@ export default function DashboardScreen() {
           </LinearGradient>
         </View>
 
-        {/* Active Order */}
-        {activeOrder && (
+        {/* Currently Delivering Order */}
+        {activeOrder && activeOrder.orderStatus === 'Delivering' && (
+        
           <View style={styles.activeOrderContainer}>
-            <Text style={styles.sectionTitle}>Active Delivery</Text>
+            <Text style={styles.sectionTitle}>🚚 Currently Delivering</Text>
             <TouchableOpacity 
               style={styles.activeOrderCard}
-              onPress={() => router.push(`/order/${activeOrder.orderId}`)}
+              onPress={() => router.push(`/order/${activeOrder.order_id || activeOrder.orderCode}`)}
             >
               <LinearGradient
-                colors={['#EF4444', '#DC2626']}
+                colors={['#3B82F6', '#1D4ED8']}
                 style={styles.activeOrderGradient}
               >
-                                 <View style={styles.activeOrderHeader}>
-                   <Text style={styles.activeOrderAmount}>ETB {(activeOrder.grandTotal || 0).toFixed(2)}</Text>
-                 </View>
-                <Text style={styles.activeOrderAddress}>
-                  {activeOrder.deliveryLocation?.address || 'Delivery Address'}
-                </Text>
-                <View style={styles.activeOrderFooter}>
-                  <Text style={styles.activeOrderStatus}>In Progress</Text>
-                  <Text style={styles.activeOrderTime}>
-                    {new Date(activeOrder.createdAt || Date.now()).toLocaleTimeString([], { 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    })}
-                  </Text>
+                <View style={styles.activeOrderHeader}>
+                  <Text style={styles.activeOrderCode}>{activeOrder.orderCode || activeOrder.order_id}</Text>
+                  <Text style={styles.activeOrderStatus}>{activeOrder.orderStatus}</Text>
                 </View>
-               
+                
+                <View style={styles.activeOrderInfo}>
+                  <View style={styles.activeOrderInfoRow}>
+                    <Text style={styles.activeOrderLabel}>Restaurant:</Text>
+                    <Text style={styles.activeOrderValue}>{activeOrder.restaurantName || activeOrder.restaurantLocation?.name || 'Unknown'}</Text>
+                  </View>
+                  <View style={styles.activeOrderInfoRow}>
+                    <Text style={styles.activeOrderLabel}>Pickup Code:</Text>
+                    <Text style={styles.activeOrderValue}>{activeOrder.pickUpVerificationCode || activeOrder.verificationCode || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.activeOrderInfoRow}>
+                    <Text style={styles.activeOrderLabel}>Total Earnings:</Text>
+                    <Text style={styles.activeOrderEarnings}>ETB {(activeOrder.grandTotal || 0).toFixed(2)}</Text>
+                  </View>
+                </View>
+                
+                <View style={styles.activeOrderFooter}>
+                  <Text style={styles.activeOrderTapText}>Tap for details</Text>
+                </View>
               </LinearGradient>
             </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Active Order Information (Accepted Order) */}
-        {activeOrder && (
-          <View style={styles.acceptedOrderContainer}>
-            <Text style={styles.sectionTitle}>
-              {activeOrder.orderStatus === 'Delivering' ? '🚚 Currently Delivering' : '🍲 Active Order Details'}
-            </Text>
-            <View style={styles.acceptedOrderCard}>
-              <LinearGradient
-                colors={activeOrder.orderStatus === 'Delivering' ? ['#3B82F6', '#1D4ED8'] : ['#10B981', '#059669']}
-                style={styles.acceptedOrderGradient}
-              >
-                <View style={styles.acceptedOrderHeader}>
-                  <Text style={styles.acceptedOrderTitle}>
-                    {activeOrder.orderStatus === 'Delivering' ? 'Order Being Delivered!' : 'Order Accepted & Ready!'}
-                  </Text>
-                  <Text style={styles.acceptedOrderTime}>
-                    {new Date(activeOrder.createdAt).toLocaleTimeString([], { 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    })}
-                  </Text>
-                </View>
-                
-                <View style={styles.acceptedOrderDetails}>
-                  <View style={styles.acceptedOrderDetailRow}>
-                    <Text style={styles.acceptedOrderLabel}>Order ID:</Text>
-                    <Text style={styles.acceptedOrderValue}>{activeOrder.order_id}</Text>
-                  </View>
-                  <View style={styles.acceptedOrderDetailRow}>
-                    <Text style={styles.acceptedOrderLabel}>Status:</Text>
-                    <Text style={styles.acceptedOrderValue}>{activeOrder.orderStatus}</Text>
-                  </View>
-                  <View style={styles.acceptedOrderDetailRow}>
-                    <Text style={styles.acceptedOrderLabel}>Restaurant:</Text>
-                    <Text style={styles.acceptedOrderValue}>{activeOrder.restaurantLocation?.name || 'Unknown'}</Text>
-                  </View>
-                  <View style={styles.acceptedOrderDetailRow}>
-                    <Text style={styles.acceptedOrderLabel}>Delivery Code:</Text>
-                    <Text style={styles.acceptedOrderValue}>{activeOrder.verificationCode || 'N/A'}</Text>
-                  </View>
-                </View>
-                
-                <View style={styles.acceptedOrderMessageContainer}>
-                  <Text style={styles.acceptedOrderMessage}>
-                    {activeOrder.orderStatus === 'Delivering' 
-                      ? '🚚 Order is being delivered to customer. Please complete the delivery.'
-                      : '🚀 Order is ready for pickup! Please proceed to the restaurant.'
-                    }
-                  </Text>
-                  <Text style={styles.acceptedOrderSubMessage}>
-                    📍 {activeOrder.deliveryLocation?.address || 'Delivery address will be shown here'}
-                  </Text>
-                </View>
-
-                {/* Complete Order Button */}
-                <TouchableOpacity
-                  style={styles.completeOrderButton}
-                  onPress={handleCompleteOrder}
-                >
-                  <LinearGradient
-                    colors={['#F59E0B', '#D97706']}
-                    style={styles.completeOrderButtonGradient}
-                  >
-                    <Text style={styles.completeOrderButtonText}>
-                      ✅ Complete Delivery
-                    </Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </LinearGradient>
-            </View>
           </View>
         )}
 
@@ -665,6 +600,24 @@ export default function DashboardScreen() {
                onPress={() => console.log('Delivery state:', { isOnline, isConnected, availableOrdersCount })}
              >
                <Text style={styles.debugButtonText}>Log Delivery State</Text>
+             </TouchableOpacity>
+             
+             <TouchableOpacity 
+               style={styles.debugButton}
+               onPress={() => {
+                 const testLocation = JSON.stringify({
+                   lat: 9.0192,
+                   lng: 38.7525,
+                   name: 'Test Restaurant',
+                   address: 'Addis Ababa, Ethiopia'
+                 });
+                 router.push({
+                   pathname: '/map',
+                   params: { restaurantLocation: testLocation }
+                 });
+               }}
+             >
+               <Text style={styles.debugButtonText}>Test Map</Text>
              </TouchableOpacity>
            </View>
         </View>
@@ -845,37 +798,61 @@ const styles = StyleSheet.create({
   activeOrderGradient: {
     padding: 20,
   },
-     activeOrderHeader: {
-     flexDirection: 'row',
-     justifyContent: 'flex-end',
-     alignItems: 'center',
-     marginBottom: 12,
-   },
-   activeOrderAmount: {
-     fontSize: 18,
-     fontWeight: 'bold',
-     color: '#FFFFFF',
-   },
-  activeOrderAddress: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    opacity: 0.9,
-    marginBottom: 16,
-  },
-  activeOrderFooter: {
+  activeOrderHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 16,
+  },
+  activeOrderCode: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
   activeOrderStatus: {
     fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  activeOrderTime: {
+  activeOrderInfo: {
+    marginBottom: 16,
+  },
+  activeOrderInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  activeOrderLabel: {
     fontSize: 14,
     color: '#FFFFFF',
+    opacity: 0.9,
+  },
+  activeOrderValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  activeOrderEarnings: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  activeOrderFooter: {
+    alignItems: 'center',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  activeOrderTapText: {
+    fontSize: 12,
+    color: '#FFFFFF',
     opacity: 0.8,
+    fontStyle: 'italic',
   },
   acceptedOrderContainer: {
     paddingHorizontal: 20,

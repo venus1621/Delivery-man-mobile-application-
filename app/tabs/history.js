@@ -49,7 +49,9 @@ export default function HistoryScreen() {
   };
 
   const filteredOrders = orderHistory.filter(order => {
-    const orderDate = new Date(order.createdAt);
+    if (!order.completedAt) return false; // Skip orders without completion date
+    
+    const orderDate = new Date(order.completedAt);
     const now = new Date();
     
     switch (selectedPeriod) {
@@ -70,32 +72,102 @@ export default function HistoryScreen() {
         return (b.deliveryFee + b.tip) - (a.deliveryFee + a.tip);
       case 'date':
       default:
-        return new Date(b.createdAt) - new Date(a.createdAt);
+        return new Date(b.completedAt) - new Date(a.completedAt);
     }
   });
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+    if (!dateString) return 'N/A';
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid Date';
+    }
   };
 
   const formatTime = (dateString) => {
-    return new Date(dateString).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    if (!dateString) return 'N/A';
+    try {
+      return new Date(dateString).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (error) {
+      console.error('Error formatting time:', error);
+      return 'Invalid Time';
+    }
   };
 
   const getTotalEarnings = () => {
     return filteredOrders.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0);
   };
 
+  const getTotalDeliveryEarnings = () => {
+    return filteredOrders.reduce((sum, order) => sum + (order.deliveryFee || 0), 0);
+  };
+
+  const getTotalTipEarnings = () => {
+    return filteredOrders.reduce((sum, order) => sum + (order.tip || 0), 0);
+  };
+
   const getTotalDeliveries = () => {
     return filteredOrders.length;
+  };
+
+  // Analysis functions
+  const getAnalysisData = () => {
+    if (filteredOrders.length === 0) return null;
+
+    const totalEarnings = getTotalEarnings();
+    const totalDeliveries = getTotalDeliveries();
+    const avgEarningsPerDelivery = totalEarnings / totalDeliveries;
+    const avgDeliveryFee = getTotalDeliveryEarnings() / totalDeliveries;
+    const avgTip = getTotalTipEarnings() / totalDeliveries;
+    
+    // Calculate tip percentage
+    const tipPercentage = getTotalDeliveryEarnings() > 0 
+      ? (getTotalTipEarnings() / getTotalDeliveryEarnings()) * 100 
+      : 0;
+
+    // Find best performing order
+    const bestOrder = filteredOrders.reduce((best, order) => {
+      const currentTotal = (order.deliveryFee || 0) + (order.tip || 0);
+      const bestTotal = (best.deliveryFee || 0) + (best.tip || 0);
+      return currentTotal > bestTotal ? order : best;
+    }, filteredOrders[0]);
+
+    // Calculate earnings trend (comparing recent vs older orders)
+    const sortedOrders = [...filteredOrders].sort((a, b) => new Date(a.completedAt) - new Date(b.completedAt));
+    const recentOrders = sortedOrders.slice(-Math.ceil(sortedOrders.length / 2));
+    const olderOrders = sortedOrders.slice(0, Math.floor(sortedOrders.length / 2));
+    
+    const recentAvg = recentOrders.length > 0 
+      ? recentOrders.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0) / recentOrders.length 
+      : 0;
+    const olderAvg = olderOrders.length > 0 
+      ? olderOrders.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0) / olderOrders.length 
+      : 0;
+    
+    const earningsTrend = recentAvg - olderAvg;
+
+    return {
+      totalEarnings,
+      totalDeliveries,
+      avgEarningsPerDelivery,
+      avgDeliveryFee,
+      avgTip,
+      tipPercentage,
+      bestOrder,
+      earningsTrend,
+      recentAvg,
+      olderAvg
+    };
   };
 
   const showFilterOptions = () => {
@@ -188,8 +260,17 @@ export default function HistoryScreen() {
           style={styles.summaryCard}
         >
           <DollarSign color="#FFFFFF" size={24} />
-          <Text style={styles.summaryNumber}>ETB {getTotalEarnings().toFixed(2)}</Text>
-          <Text style={styles.summaryLabel}>Total Earnings</Text>
+          <Text style={styles.summaryNumber}>ETB {getTotalDeliveryEarnings().toFixed(2)}</Text>
+          <Text style={styles.summaryLabel}>Delivery Earnings</Text>
+        </LinearGradient>
+
+        <LinearGradient
+          colors={['#F59E0B', '#D97706']}
+          style={styles.summaryCard}
+        >
+          <TrendingUp color="#FFFFFF" size={24} />
+          <Text style={styles.summaryNumber}>ETB {getTotalTipEarnings().toFixed(2)}</Text>
+          <Text style={styles.summaryLabel}>Tip Earnings</Text>
         </LinearGradient>
 
         <LinearGradient
@@ -235,6 +316,111 @@ export default function HistoryScreen() {
         </View>
       )}
 
+      {/* Comprehensive Analysis Section */}
+      {getAnalysisData() && (
+        <View style={styles.analysisContainer}>
+          <Text style={styles.analysisTitle}>📊 Order Analysis</Text>
+          
+          {/* Key Metrics */}
+          <View style={styles.analysisSection}>
+            <Text style={styles.analysisSectionTitle}>Key Metrics</Text>
+            <View style={styles.analysisGrid}>
+              <View style={styles.analysisItem}>
+                <Text style={styles.analysisValue}>
+                  ETB {getAnalysisData().avgEarningsPerDelivery.toFixed(2)}
+                </Text>
+                <Text style={styles.analysisLabel}>Avg. Earnings per Order</Text>
+              </View>
+              <View style={styles.analysisItem}>
+                <Text style={styles.analysisValue}>
+                  {getAnalysisData().tipPercentage.toFixed(1)}%
+                </Text>
+                <Text style={styles.analysisLabel}>Tip Rate</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Best Performance */}
+          <View style={styles.analysisSection}>
+            <Text style={styles.analysisSectionTitle}>Best Performance</Text>
+            <View style={styles.bestOrderCard}>
+              <View style={styles.bestOrderHeader}>
+                <Text style={styles.bestOrderId}>
+                  #{getAnalysisData().bestOrder.orderId?.slice(-8) || 'N/A'}
+                </Text>
+                <Text style={styles.bestOrderEarnings}>
+                  ETB {((getAnalysisData().bestOrder.deliveryFee || 0) + (getAnalysisData().bestOrder.tip || 0)).toFixed(2)}
+                </Text>
+              </View>
+              <Text style={styles.bestOrderRestaurant}>
+                {getAnalysisData().bestOrder.restaurantName || 'Restaurant'}
+              </Text>
+              <Text style={styles.bestOrderDate}>
+                {formatDate(getAnalysisData().bestOrder.completedAt)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Earnings Trend */}
+          {getAnalysisData().totalDeliveries > 1 && (
+            <View style={styles.analysisSection}>
+              <Text style={styles.analysisSectionTitle}>Earnings Trend</Text>
+              <View style={styles.trendCard}>
+                <View style={styles.trendRow}>
+                  <Text style={styles.trendLabel}>Recent Average:</Text>
+                  <Text style={styles.trendValue}>
+                    ETB {getAnalysisData().recentAvg.toFixed(2)}
+                  </Text>
+                </View>
+                <View style={styles.trendRow}>
+                  <Text style={styles.trendLabel}>Earlier Average:</Text>
+                  <Text style={styles.trendValue}>
+                    ETB {getAnalysisData().olderAvg.toFixed(2)}
+                  </Text>
+                </View>
+                <View style={styles.trendRow}>
+                  <Text style={styles.trendLabel}>Trend:</Text>
+                  <Text style={[
+                    styles.trendValue,
+                    { color: getAnalysisData().earningsTrend >= 0 ? '#10B981' : '#EF4444' }
+                  ]}>
+                    {getAnalysisData().earningsTrend >= 0 ? '↗️' : '↘️'} 
+                    ETB {Math.abs(getAnalysisData().earningsTrend).toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Insights */}
+          <View style={styles.analysisSection}>
+            <Text style={styles.analysisSectionTitle}>💡 Insights</Text>
+            <View style={styles.insightsContainer}>
+              {getAnalysisData().tipPercentage > 15 && (
+                <Text style={styles.insightText}>
+                  🎉 Great tip rate! You're earning {getAnalysisData().tipPercentage.toFixed(1)}% in tips.
+                </Text>
+              )}
+              {getAnalysisData().avgEarningsPerDelivery > 200 && (
+                <Text style={styles.insightText}>
+                  💰 Strong average earnings of ETB {getAnalysisData().avgEarningsPerDelivery.toFixed(2)} per delivery.
+                </Text>
+              )}
+              {getAnalysisData().earningsTrend > 0 && (
+                <Text style={styles.insightText}>
+                  📈 Your earnings are trending upward! Keep up the great work.
+                </Text>
+              )}
+              {getAnalysisData().totalDeliveries >= 2 && (
+                <Text style={styles.insightText}>
+                  🚀 You've completed {getAnalysisData().totalDeliveries} deliveries with a total earning of ETB {getAnalysisData().totalEarnings.toFixed(2)}.
+                </Text>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Orders List */}
       <ScrollView 
         style={styles.ordersList}
@@ -271,8 +457,8 @@ export default function HistoryScreen() {
             >
               <View style={styles.orderHeader}>
                 <View style={styles.orderInfo}>
-                  <Text style={styles.orderId}>#{order.order_id || order.orderId}</Text>
-                  <Text style={styles.orderDate}>{formatDate(order.createdAt)}</Text>
+                  <Text style={styles.orderId}>#{order.order_id || order.orderId || 'N/A'}</Text>
+                  <Text style={styles.orderDate}>{formatDate(order.completedAt)}</Text>
                 </View>
                 <View style={styles.orderEarnings}>
                   <Text style={styles.earningsAmount}>
@@ -286,13 +472,13 @@ export default function HistoryScreen() {
                 <View style={styles.detailRow}>
                   <MapPin color="#6B7280" size={16} />
                   <Text style={styles.detailText} numberOfLines={1}>
-                    {order.restaurantLocation?.name || 'Restaurant'}
+                    {order.restaurantName || order.restaurantLocation?.name || 'Restaurant'}
                   </Text>
                 </View>
                 <View style={styles.detailRow}>
                   <Clock color="#6B7280" size={16} />
                   <Text style={styles.detailText}>
-                    {formatTime(order.createdAt)}
+                    Completed: {formatTime(order.completedAt)}
                   </Text>
                 </View>
               </View>
@@ -400,19 +586,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 20,
     paddingTop: 20,
-    gap: 12,
+    gap: 8,
   },
   summaryCard: {
     flex: 1,
-    padding: 20,
+    padding: 16,
     borderRadius: 16,
     alignItems: 'center',
   },
   summaryNumber: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginTop: 8,
+    marginTop: 6,
     marginBottom: 4,
   },
   summaryLabel: {
@@ -582,5 +768,98 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#10B981',
     marginLeft: 4,
+  },
+  // Analysis styles
+  analysisContainer: {
+    margin: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  analysisTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  analysisSection: {
+    marginBottom: 20,
+  },
+  analysisSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  bestOrderCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#10B981',
+  },
+  bestOrderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  bestOrderId: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  bestOrderEarnings: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#10B981',
+  },
+  bestOrderRestaurant: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  bestOrderDate: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  trendCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 16,
+  },
+  trendRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  trendLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  trendValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  insightsContainer: {
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6',
+  },
+  insightText: {
+    fontSize: 14,
+    color: '#1E40AF',
+    lineHeight: 20,
+    marginBottom: 8,
   },
 });

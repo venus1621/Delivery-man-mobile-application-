@@ -24,7 +24,9 @@
       },
       "package": "com.delivery.gebeta",
       "permissions": [
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {
@@ -36,6 +38,12 @@
         "expo-router",
         {
           "origin": "https://delivery.gebeta.com/"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to provide delivery services and navigation."
         }
       ]
     ],

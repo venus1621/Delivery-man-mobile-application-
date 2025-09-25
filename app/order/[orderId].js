@@ -35,6 +35,7 @@ export default function OrderDetailsScreen() {
   const [verificationCode, setVerificationCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
 
   // Find the order details (either from active order or available orders)
   const order = activeOrder;
@@ -46,19 +47,37 @@ export default function OrderDetailsScreen() {
     }
 
     setIsVerifying(true);
+    setVerificationError(''); // Clear previous errors
     try {
+      console.log('🔍 Order ID:');
+      console.log('🔍 Verifying delivery for order:', orderId, 'with code:', verificationCode.trim());
       const result = await verifyDelivery(orderId, verificationCode.trim());
       if (result.success) {
         Alert.alert('Success', 'Delivery verified successfully!');
         setShowVerificationModal(false);
         setVerificationCode('');
+        setVerificationError('');
         router.back();
+      } else {
+        // Handle verification failure - show error message
+        if (result.error) {
+          setVerificationError(result.error);
+        }
+        // Don't close the modal on error, let user try again
       }
     } catch (error) {
       console.error('Error verifying delivery:', error);
-      Alert.alert('Error', 'Failed to verify delivery. Please try again.');
+      setVerificationError('Failed to verify delivery. Please try again.');
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  // Clear verification error when user starts typing
+  const handleVerificationCodeChange = (text) => {
+    setVerificationCode(text);
+    if (verificationError) {
+      setVerificationError('');
     }
   };
 
@@ -93,28 +112,52 @@ export default function OrderDetailsScreen() {
 
   const handleNavigateToRestaurant = () => {
     if (order?.restaurantLocation?.lat && order?.restaurantLocation?.lng) {
-      // You can implement navigation here using expo-location or maps
-      Alert.alert(
-        'Navigate to Restaurant',
-        `Navigate to ${order.restaurantLocation.name}?\n\nAddress: ${(typeof order.restaurantLocation.address === 'string' ? order.restaurantLocation.address : 'Restaurant Address')}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Navigate', style: 'default' }
-        ]
-      );
+      const lat = order.restaurantLocation.lat; 
+      const lng = order.restaurantLocation.lng;
+
+      console.log('🔍 Navigating to restaurant:', lat, lng);
+      
+      // Navigate to map screen with restaurant location
+      const restaurantLocation = JSON.stringify({
+        lat: lat,
+        lng: lng,
+        name: order.restaurantLocation.name || order.restaurantName || 'Restaurant',
+        address: order.restaurantLocation.address || 'Restaurant Address'
+      });
+      
+      console.log('📍 Restaurant location data:', restaurantLocation);
+      
+      router.push({
+        pathname: '/map',
+        params: {
+          restaurantLocation: restaurantLocation
+        }
+      });
+    } else {
+      Alert.alert('Error', 'Restaurant location not available');
     }
   };
 
   const handleNavigateToDelivery = () => {
     if (order?.deliveryLocation?.lat && order?.deliveryLocation?.lng) {
-      Alert.alert(
-        'Navigate to Delivery',
-        `Navigate to delivery address?\n\nAddress: ${(typeof order.deliveryLocation.address === 'string' ? order.deliveryLocation.address : 'Delivery Address')}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Navigate', style: 'default' }
-        ]
-      );
+      console.log('🔍 Navigating to delivery location:', order.deliveryLocation.lat, order.deliveryLocation.lng);
+      
+      // Navigate to map screen with delivery location
+      const deliveryLocation = JSON.stringify({
+        lat: order.deliveryLocation.lat,
+        lng: order.deliveryLocation.lng,
+        name: 'Delivery Location',
+        address: order.deliveryLocation.address || 'Delivery Address'
+      });
+      
+      router.push({
+        pathname: '/map',
+        params: {
+          restaurantLocation: deliveryLocation
+        }
+      });
+    } else {
+      Alert.alert('Error', 'Delivery location not available');
     }
   };
 
@@ -216,29 +259,31 @@ export default function OrderDetailsScreen() {
           <Text style={styles.sectionTitle}>Order Information</Text>
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Order ID:</Text>
-              <Text style={styles.infoValue}>{order.order_id || order.orderId}</Text>
-            </View>
-            <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Order Code:</Text>
-              <Text style={styles.infoValue}>{order.orderCode || 'N/A'}</Text>
+              <Text style={styles.infoValue}>{order.orderCode || order.order_id || 'N/A'}</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Status:</Text>
-              <Text style={[styles.infoValue, styles.statusText]}>{order.orderStatus}</Text>
+              <Text style={[styles.infoValue, styles.statusText]}>{order.orderStatus || 'Pending'}</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Created:</Text>
               <Text style={styles.infoValue}>
-                {formatDate(order.createdAt)} at {formatTime(order.createdAt)}
+                {order.createdAt ? `${formatDate(order.createdAt)} at ${formatTime(order.createdAt)}` : 'N/A'}
               </Text>
             </View>
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Verification Code:</Text>
+              <Text style={styles.infoLabel}>Pickup Code:</Text>
               <Text style={[styles.infoValue, styles.verificationCode]}>
-                {order.verificationCode || 'N/A'}
+                {order.pickUpVerificationCode || order.verificationCode || 'N/A'}
               </Text>
             </View>
+            {order.distanceKm && (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Distance:</Text>
+                <Text style={styles.infoValue}>{order.distanceKm} km</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -250,9 +295,14 @@ export default function OrderDetailsScreen() {
               <MapPin color="#1E40AF" size={20} />
               <Text style={styles.locationTitle}>Pickup Location</Text>
             </View>
-            <Text style={styles.restaurantName}>{order.restaurantLocation?.name}</Text>
+            <Text style={styles.restaurantName}>
+              {order.restaurantName || order.restaurantLocation?.name || 'Restaurant'}
+            </Text>
             <Text style={styles.locationAddress}>
-              {(typeof order.restaurantLocation?.address === 'string' ? order.restaurantLocation.address : null) || 'Restaurant Address'}
+              {(typeof order.restaurantLocation?.address === 'string' ? order.restaurantLocation.address : null) || 
+               (order.restaurantLocation?.lat && order.restaurantLocation?.lng ? 
+                 `Lat: ${order.restaurantLocation.lat.toFixed(4)}, Lng: ${order.restaurantLocation.lng.toFixed(4)}` : 
+                 'Restaurant Address')}
             </Text>
             
             <TouchableOpacity 
@@ -274,7 +324,10 @@ export default function OrderDetailsScreen() {
               <Text style={styles.locationTitle}>Delivery Location</Text>
             </View>
             <Text style={styles.locationAddress}>
-              {(typeof order.deliveryLocation?.address === 'string' ? order.deliveryLocation.address : null) || 'Delivery Address'}
+              {(typeof order.deliveryLocation?.address === 'string' ? order.deliveryLocation.address : null) || 
+               (order.deliveryLocation?.lat && order.deliveryLocation?.lng ? 
+                 `Lat: ${order.deliveryLocation.lat.toFixed(4)}, Lng: ${order.deliveryLocation.lng.toFixed(4)}` : 
+                 'Delivery Address')}
             </Text>
             
             <TouchableOpacity 
@@ -296,11 +349,11 @@ export default function OrderDetailsScreen() {
             <View style={styles.infoRow}>
               <Phone color="#6B7280" size={16} />
               <Text style={styles.infoLabel}>Phone:</Text>
-              <Text style={styles.infoValue}>{order.userPhone || order.customer?.phone || 'N/A'}</Text>
+              <Text style={styles.infoValue}>{order.phone || order.userPhone || order.customer?.phone || 'N/A'}</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Name:</Text>
-              <Text style={styles.infoValue}>{order.customer?.name || 'Customer'}</Text>
+              <Text style={styles.infoValue}>{order.userName || order.customer?.name || 'Customer'}</Text>
             </View>
           </View>
         </View>
@@ -315,10 +368,12 @@ export default function OrderDetailsScreen() {
                 <Text style={styles.itemQuantity}>x{item.quantity}</Text>
               </View>
             ))}
-            {order.specialInstructions && (
+            {(order.description || order.specialInstructions) && (
               <View style={styles.instructionsContainer}>
                 <Text style={styles.instructionsLabel}>Special Instructions:</Text>
-                <Text style={styles.instructionsText}>{order.specialInstructions}</Text>
+                <Text style={styles.instructionsText}>
+                  {order.description || order.specialInstructions}
+                </Text>
               </View>
             )}
           </View>
@@ -340,7 +395,7 @@ export default function OrderDetailsScreen() {
             <View style={[styles.paymentRow, styles.totalRow]}>
               <Text style={styles.totalLabel}>Total Earnings:</Text>
               <Text style={styles.totalValue}>
-                ETB {((order.deliveryFee || 0) + (order.tip || 0)).toFixed(2)}
+                ETB {(order.grandTotal || ((order.deliveryFee || 0) + (order.tip || 0))).toFixed(2)}
               </Text>
             </View>
           </View>
@@ -409,14 +464,17 @@ export default function OrderDetailsScreen() {
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Verification Code:</Text>
               <TextInput
-                style={styles.textInput}
+                style={[styles.textInput, verificationError ? styles.textInputError : null]}
                 value={verificationCode}
-                onChangeText={setVerificationCode}
+                onChangeText={handleVerificationCodeChange}
                 placeholder="Enter code"
                 keyboardType="numeric"
                 maxLength={6}
                 autoFocus
               />
+              {verificationError ? (
+                <Text style={styles.errorText}>{verificationError}</Text>
+              ) : null}
             </View>
             
             <View style={styles.modalButtons}>
@@ -425,6 +483,7 @@ export default function OrderDetailsScreen() {
                 onPress={() => {
                   setShowVerificationModal(false);
                   setVerificationCode('');
+                  setVerificationError('');
                 }}
               >
                 <Text style={styles.modalCancelText}>Cancel</Text>
@@ -813,6 +872,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     backgroundColor: '#FFFFFF',
+  },
+  textInputError: {
+    borderColor: '#EF4444',
+    borderWidth: 2,
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
   },
   modalButtons: {
     flexDirection: 'row',

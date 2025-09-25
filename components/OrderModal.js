@@ -146,9 +146,15 @@ export default function OrderModal({
                 </View>
               </View>
 
-              {/* Restaurant Location */}
+              {/* Restaurant Information */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Restaurant Location</Text>
+                <Text style={styles.sectionTitle}>Restaurant Information</Text>
+                <View style={styles.detailRow}>
+                  <MapPin color="#6B7280" size={16} />
+                  <Text style={styles.detailText}>
+                    {order.restaurantName || order.restaurantLocation?.name || 'Restaurant'}
+                  </Text>
+                </View>
                 <View style={styles.detailRow}>
                   <MapPin color="#6B7280" size={16} />
                   <Text style={styles.detailText}>
@@ -182,18 +188,18 @@ export default function OrderModal({
 
               {/* Customer Information */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Customer</Text>
+                <Text style={styles.sectionTitle}>Customer Information</Text>
                 <View style={styles.customerInfo}>
                   <View style={styles.customerRow}>
                     <User color="#6B7280" size={16} />
                     <Text style={styles.customerText}>
-                      {order.customer?.name || 'Customer'}
+                      {order.userName || order.customer?.name || 'Customer'}
                     </Text>
                   </View>
                   <View style={styles.customerRow}>
                     <Phone color="#6B7280" size={16} />
                     <Text style={styles.customerText}>
-                      {order.customer?.phone || 'N/A'}
+                      {order.phone || order.customer?.phone || 'N/A'}
                     </Text>
                   </View>
                 </View>
@@ -214,12 +220,39 @@ export default function OrderModal({
                 )}
               </View>
 
+              {/* Order Status & Verification */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Order Status & Verification</Text>
+                <View style={styles.detailRow}>
+                  <Package color="#6B7280" size={16} />
+                  <Text style={styles.detailText}>
+                    Status: {order.orderStatus || 'Pending'}
+                  </Text>
+                </View>
+                {order.pickUpVerificationCode && (
+                  <View style={styles.detailRow}>
+                    <Check color="#6B7280" size={16} />
+                    <Text style={styles.detailText}>
+                      Pickup Code: {order.pickUpVerificationCode}
+                    </Text>
+                  </View>
+                )}
+                {order.verificationCode && (
+                  <View style={styles.detailRow}>
+                    <Check color="#6B7280" size={16} />
+                    <Text style={styles.detailText}>
+                      Verification Code: {order.verificationCode}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
               {/* Special Instructions */}
-              {order.specialInstructions && (
+              {(order.description || order.specialInstructions) && (
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>Special Instructions</Text>
                   <Text style={styles.instructionsText}>
-                    {order.specialInstructions}
+                    {order.description || order.specialInstructions}
                   </Text>
                 </View>
               )}
@@ -235,6 +268,12 @@ export default function OrderModal({
                   <Text style={styles.breakdownLabel}>Tip:</Text>
                   <Text style={styles.breakdownValue}>ETB {order.tip?.toFixed(2) || '0.00'}</Text>
                 </View>
+                {order.distanceKm && (
+                  <View style={styles.breakdownRow}>
+                    <Text style={styles.breakdownLabel}>Distance:</Text>
+                    <Text style={styles.breakdownValue}>{order.distanceKm} km</Text>
+                  </View>
+                )}
                 <View style={[styles.breakdownRow, styles.totalRow]}>
                   <Text style={styles.totalLabel}>Grand Total:</Text>
                   <Text style={styles.totalValue}>ETB {order.grandTotal?.toFixed(2) || '0.00'}</Text>
