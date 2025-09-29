@@ -86,9 +86,26 @@ class LocationService {
   }
 
   // Stop location tracking
-  stopLocationTracking() {
+  async stopLocationTracking() {
     if (this.watchId) {
-      Location.stopLocationUpdatesAsync(this.watchId);
+      try {
+        // watchPositionAsync returns a subscription object with a `remove()` method.
+        // stopLocationUpdatesAsync expects a string `taskName` used for
+        // background location tasks (startLocationUpdatesAsync). Handle both.
+        if (typeof this.watchId.remove === 'function') {
+          this.watchId.remove();
+        } else if (typeof this.watchId === 'string') {
+          await Location.stopLocationUpdatesAsync(this.watchId);
+        } else {
+          // Unknown type; attempt to call remove if present, otherwise ignore.
+          if (this.watchId && typeof this.watchId === 'object' && typeof this.watchId.remove === 'function') {
+            this.watchId.remove();
+          }
+        }
+      } catch (error) {
+        console.warn('Error stopping location updates:', error);
+      }
+
       this.watchId = null;
     }
     this.isTracking = false;

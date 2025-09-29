@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,29 +14,94 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   Clock, 
   DollarSign, 
-  MapPin, 
   CheckCircle, 
   TrendingUp,
   Calendar,
   Filter,
-  Search
 } from 'lucide-react-native';
-import { useDelivery } from '../../providers/delivery-provider';
+
 import { useAuth } from '../../providers/auth-provider';
 
 export default function HistoryScreen() {
-  const { 
-    orderHistory, 
-    deliveryAnalytics, 
-    fetchDeliveryHistory,
-    isLoadingHistory,
-    historyError 
-  } = useDelivery();
+   const { token } = useAuth();
   
-  const { user } = useAuth();
+  const [state, setState] = useState({
+    deliveryHistory: [],
+    isLoadingHistory: false,
+    historyError: null,
+    totalCount: 0,
+  });
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState('all'); // all, today, week, month
-  const [sortBy, setSortBy] = useState('date'); // date, earnings, distance
+  const [sortBy, setSortBy] = useState('date'); // date, earnings
+  
+
+  const fetchDeliveryHistory = useCallback(async () => {
+    console.log("📊 Fetching delivery history from API...");
+
+    if (!token) {
+      console.error("❌ No authentication token available");
+      setState((prev) => ({
+        ...prev,
+        isLoadingHistory: false,
+        historyError: "Authentication required. Please log in again.",
+      }));
+      return;
+    }
+
+    try {
+      setState((prev) => ({
+        ...prev,
+        isLoadingHistory: true,
+        historyError: null,
+      }));
+
+      const response = await fetch(
+        "https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=Completed",
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+      console.log("🔍 Delivery history raw data:", data);
+
+      if (!response.ok || data?.status !== "success") {
+        throw new Error(data?.message || "Failed to fetch delivery history");
+      }
+
+      if (!Array.isArray(data.data)) {
+        throw new Error("Invalid data format received from server");
+      }
+
+      setState((prev) => ({
+        ...prev,
+        isLoadingHistory: false,
+        deliveryHistory: data.data.map(order => ({
+          restaurantName: order.restaurantName,
+          deliveryFee: order.deliveryFee,
+          tip: order.tip,
+          description: order.description,
+          orderStatus: order.orderStatus,
+          updatedAt: new Date(order.updatedAt).toISOString(),
+        })),
+        historyError: null,
+        totalCount: data.count,
+      }));
+
+    } catch (error) {
+      console.error("❌ Error fetching delivery history:", error);
+      setState((prev) => ({
+        ...prev,
+        isLoadingHistory: false,
+        historyError: error.message || "Network error. Please check your connection.",
+      }));
+    }
+  }, [token]);
 
   useEffect(() => {
     fetchDeliveryHistory();
@@ -48,12 +113,11 @@ export default function HistoryScreen() {
     setRefreshing(false);
   };
 
-  const filteredOrders = orderHistory.filter(order => {
-    if (!order.completedAt) return false; // Skip orders without completion date
-    
-    const orderDate = new Date(order.completedAt);
+  const filteredOrders = state.deliveryHistory.filter(order => {
+    if (!order.updatedAt) return false;
+    const orderDate = new Date(order.updatedAt);
     const now = new Date();
-    
+
     switch (selectedPeriod) {
       case 'today':
         return orderDate.toDateString() === now.toDateString();
@@ -72,7 +136,7 @@ export default function HistoryScreen() {
         return (b.deliveryFee + b.tip) - (a.deliveryFee + a.tip);
       case 'date':
       default:
-        return new Date(b.completedAt) - new Date(a.completedAt);
+        return new Date(b.updatedAt) - new Date(a.updatedAt);
     }
   });
 
@@ -82,7 +146,7 @@ export default function HistoryScreen() {
       return new Date(dateString).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
-        year: 'numeric'
+        year: 'numeric',
       });
     } catch (error) {
       console.error('Error formatting date:', error);
@@ -96,7 +160,7 @@ export default function HistoryScreen() {
       return new Date(dateString).toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',
-        hour12: true
+        hour12: true,
       });
     } catch (error) {
       console.error('Error formatting time:', error);
@@ -120,59 +184,27 @@ export default function HistoryScreen() {
     return filteredOrders.length;
   };
 
-  // Analysis functions
-  const getAnalysisData = () => {
+  const getStatistics = () => {
     if (filteredOrders.length === 0) return null;
 
     const totalEarnings = getTotalEarnings();
     const totalDeliveries = getTotalDeliveries();
     const avgEarningsPerDelivery = totalEarnings / totalDeliveries;
-    const avgDeliveryFee = getTotalDeliveryEarnings() / totalDeliveries;
-    const avgTip = getTotalTipEarnings() / totalDeliveries;
-    
-    // Calculate tip percentage
     const tipPercentage = getTotalDeliveryEarnings() > 0 
       ? (getTotalTipEarnings() / getTotalDeliveryEarnings()) * 100 
       : 0;
-
-    // Find best performing order
-    const bestOrder = filteredOrders.reduce((best, order) => {
-      const currentTotal = (order.deliveryFee || 0) + (order.tip || 0);
-      const bestTotal = (best.deliveryFee || 0) + (best.tip || 0);
-      return currentTotal > bestTotal ? order : best;
-    }, filteredOrders[0]);
-
-    // Calculate earnings trend (comparing recent vs older orders)
-    const sortedOrders = [...filteredOrders].sort((a, b) => new Date(a.completedAt) - new Date(b.completedAt));
-    const recentOrders = sortedOrders.slice(-Math.ceil(sortedOrders.length / 2));
-    const olderOrders = sortedOrders.slice(0, Math.floor(sortedOrders.length / 2));
-    
-    const recentAvg = recentOrders.length > 0 
-      ? recentOrders.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0) / recentOrders.length 
-      : 0;
-    const olderAvg = olderOrders.length > 0 
-      ? olderOrders.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0) / olderOrders.length 
-      : 0;
-    
-    const earningsTrend = recentAvg - olderAvg;
 
     return {
       totalEarnings,
       totalDeliveries,
       avgEarningsPerDelivery,
-      avgDeliveryFee,
-      avgTip,
       tipPercentage,
-      bestOrder,
-      earningsTrend,
-      recentAvg,
-      olderAvg
     };
   };
 
   const showFilterOptions = () => {
     Alert.alert(
-      'Filter Options',
+      'Sort Options',
       'Choose how to sort your delivery history:',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -196,7 +228,7 @@ export default function HistoryScreen() {
     );
   };
 
-  if (isLoadingHistory && !refreshing) {
+  if (state.isLoadingHistory && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -207,12 +239,12 @@ export default function HistoryScreen() {
     );
   }
 
-  if (historyError) {
+  if (state.historyError) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
           <Text style={styles.errorTitle}>Unable to Load History</Text>
-          <Text style={styles.errorMessage}>{historyError}</Text>
+          <Text style={styles.errorMessage}>{state.historyError}</Text>
           <TouchableOpacity 
             style={styles.retryButton}
             onPress={handleRefresh}
@@ -231,10 +263,10 @@ export default function HistoryScreen() {
         <View>
           <Text style={styles.title}>Delivery History</Text>
           <Text style={styles.subtitle}>
-            {selectedPeriod === 'all' ? 'All deliveries' : 
-             selectedPeriod === 'today' ? 'Today\'s deliveries' :
-             selectedPeriod === 'week' ? 'This week\'s deliveries' :
-             'This month\'s deliveries'}
+            {selectedPeriod === 'all' ? 'All Deliveries' : 
+             selectedPeriod === 'today' ? 'Today\'s Deliveries' :
+             selectedPeriod === 'week' ? 'This Week\'s Deliveries' :
+             'This Month\'s Deliveries'}
           </Text>
         </View>
         <View style={styles.headerActions}>
@@ -253,170 +285,43 @@ export default function HistoryScreen() {
         </View>
       </View>
 
-      {/* Summary Cards */}
-      <View style={styles.summaryContainer}>
-        <LinearGradient
-          colors={['#10B981', '#059669']}
-          style={styles.summaryCard}
-        >
-          <DollarSign color="#FFFFFF" size={24} />
-          <Text style={styles.summaryNumber}>ETB {getTotalDeliveryEarnings().toFixed(2)}</Text>
-          <Text style={styles.summaryLabel}>Delivery Earnings</Text>
-        </LinearGradient>
-
-        <LinearGradient
-          colors={['#F59E0B', '#D97706']}
-          style={styles.summaryCard}
-        >
-          <TrendingUp color="#FFFFFF" size={24} />
-          <Text style={styles.summaryNumber}>ETB {getTotalTipEarnings().toFixed(2)}</Text>
-          <Text style={styles.summaryLabel}>Tip Earnings</Text>
-        </LinearGradient>
-
-        <LinearGradient
-          colors={['#3B82F6', '#1D4ED8']}
-          style={styles.summaryCard}
-        >
-          <CheckCircle color="#FFFFFF" size={24} />
-          <Text style={styles.summaryNumber}>{getTotalDeliveries()}</Text>
-          <Text style={styles.summaryLabel}>Completed Deliveries</Text>
-        </LinearGradient>
-      </View>
-
-      {/* Analytics Card */}
-      {deliveryAnalytics && (
-        <View style={styles.analyticsContainer}>
-          <Text style={styles.analyticsTitle}>Performance Overview</Text>
-          <View style={styles.analyticsGrid}>
-            <View style={styles.analyticsItem}>
-              <Text style={styles.analyticsValue}>
-                {deliveryAnalytics.averageDeliveryFee?.toFixed(2) || '0.00'}
-              </Text>
-              <Text style={styles.analyticsLabel}>Avg. Delivery Fee</Text>
-            </View>
-            <View style={styles.analyticsItem}>
-              <Text style={styles.analyticsValue}>
-                {deliveryAnalytics.averageTip?.toFixed(2) || '0.00'}
-              </Text>
-              <Text style={styles.analyticsLabel}>Avg. Tip</Text>
-            </View>
-            <View style={styles.analyticsItem}>
-              <Text style={styles.analyticsValue}>
-                {deliveryAnalytics.averageDistance?.toFixed(1) || '0.0'}km
-              </Text>
-              <Text style={styles.analyticsLabel}>Avg. Distance</Text>
-            </View>
-            <View style={styles.analyticsItem}>
-              <Text style={styles.analyticsValue}>
-                {deliveryAnalytics.averageTime || '0'}min
-              </Text>
-              <Text style={styles.analyticsLabel}>Avg. Time</Text>
-            </View>
-          </View>
-        </View>
-      )}
-
-      {/* Comprehensive Analysis Section */}
-      {getAnalysisData() && (
-        <View style={styles.analysisContainer}>
-          <Text style={styles.analysisTitle}>📊 Order Analysis</Text>
-          
-          {/* Key Metrics */}
-          <View style={styles.analysisSection}>
-            <Text style={styles.analysisSectionTitle}>Key Metrics</Text>
-            <View style={styles.analysisGrid}>
-              <View style={styles.analysisItem}>
-                <Text style={styles.analysisValue}>
-                  ETB {getAnalysisData().avgEarningsPerDelivery.toFixed(2)}
-                </Text>
-                <Text style={styles.analysisLabel}>Avg. Earnings per Order</Text>
-              </View>
-              <View style={styles.analysisItem}>
-                <Text style={styles.analysisValue}>
-                  {getAnalysisData().tipPercentage.toFixed(1)}%
-                </Text>
-                <Text style={styles.analysisLabel}>Tip Rate</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Best Performance */}
-          <View style={styles.analysisSection}>
-            <Text style={styles.analysisSectionTitle}>Best Performance</Text>
-            <View style={styles.bestOrderCard}>
-              <View style={styles.bestOrderHeader}>
-                <Text style={styles.bestOrderId}>
-                  #{getAnalysisData().bestOrder.orderId?.slice(-8) || 'N/A'}
-                </Text>
-                <Text style={styles.bestOrderEarnings}>
-                  ETB {((getAnalysisData().bestOrder.deliveryFee || 0) + (getAnalysisData().bestOrder.tip || 0)).toFixed(2)}
-                </Text>
-              </View>
-              <Text style={styles.bestOrderRestaurant}>
-                {getAnalysisData().bestOrder.restaurantName || 'Restaurant'}
-              </Text>
-              <Text style={styles.bestOrderDate}>
-                {formatDate(getAnalysisData().bestOrder.completedAt)}
-              </Text>
-            </View>
-          </View>
-
-          {/* Earnings Trend */}
-          {getAnalysisData().totalDeliveries > 1 && (
-            <View style={styles.analysisSection}>
-              <Text style={styles.analysisSectionTitle}>Earnings Trend</Text>
-              <View style={styles.trendCard}>
-                <View style={styles.trendRow}>
-                  <Text style={styles.trendLabel}>Recent Average:</Text>
-                  <Text style={styles.trendValue}>
-                    ETB {getAnalysisData().recentAvg.toFixed(2)}
-                  </Text>
-                </View>
-                <View style={styles.trendRow}>
-                  <Text style={styles.trendLabel}>Earlier Average:</Text>
-                  <Text style={styles.trendValue}>
-                    ETB {getAnalysisData().olderAvg.toFixed(2)}
-                  </Text>
-                </View>
-                <View style={styles.trendRow}>
-                  <Text style={styles.trendLabel}>Trend:</Text>
-                  <Text style={[
-                    styles.trendValue,
-                    { color: getAnalysisData().earningsTrend >= 0 ? '#10B981' : '#EF4444' }
-                  ]}>
-                    {getAnalysisData().earningsTrend >= 0 ? '↗️' : '↘️'} 
-                    ETB {Math.abs(getAnalysisData().earningsTrend).toFixed(2)}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* Insights */}
-          <View style={styles.analysisSection}>
-            <Text style={styles.analysisSectionTitle}>💡 Insights</Text>
-            <View style={styles.insightsContainer}>
-              {getAnalysisData().tipPercentage > 15 && (
-                <Text style={styles.insightText}>
-                  🎉 Great tip rate! You're earning {getAnalysisData().tipPercentage.toFixed(1)}% in tips.
-                </Text>
-              )}
-              {getAnalysisData().avgEarningsPerDelivery > 200 && (
-                <Text style={styles.insightText}>
-                  💰 Strong average earnings of ETB {getAnalysisData().avgEarningsPerDelivery.toFixed(2)} per delivery.
-                </Text>
-              )}
-              {getAnalysisData().earningsTrend > 0 && (
-                <Text style={styles.insightText}>
-                  📈 Your earnings are trending upward! Keep up the great work.
-                </Text>
-              )}
-              {getAnalysisData().totalDeliveries >= 2 && (
-                <Text style={styles.insightText}>
-                  🚀 You've completed {getAnalysisData().totalDeliveries} deliveries with a total earning of ETB {getAnalysisData().totalEarnings.toFixed(2)}.
-                </Text>
-              )}
-            </View>
+      {/* Statistics Section */}
+      {getStatistics() && (
+        <View style={styles.statsContainer}>
+          <Text style={styles.statsTitle}>📊 Grand Total Statistics</Text>
+          <View style={styles.statsGrid}>
+            <LinearGradient
+              colors={['#10B981', '#059669']}
+              style={styles.statCard}
+            >
+              <DollarSign color="#FFFFFF" size={24} />
+              <Text style={styles.statNumber}>ETB {getStatistics().totalEarnings.toFixed(2)}</Text>
+              <Text style={styles.statLabel}>Total Earnings</Text>
+            </LinearGradient>
+            <LinearGradient
+              colors={['#F59E0B', '#D97706']}
+              style={styles.statCard}
+            >
+              <CheckCircle color="#FFFFFF" size={24} />
+              <Text style={styles.statNumber}>{getStatistics().totalDeliveries}</Text>
+              <Text style={styles.statLabel}>Total Deliveries</Text>
+            </LinearGradient>
+            <LinearGradient
+              colors={['#3B82F6', '#1D4ED8']}
+              style={styles.statCard}
+            >
+              <TrendingUp color="#FFFFFF" size={24} />
+              <Text style={styles.statNumber}>ETB {getStatistics().avgEarningsPerDelivery.toFixed(2)}</Text>
+              <Text style={styles.statLabel}>Avg. Earnings/Delivery</Text>
+            </LinearGradient>
+            <LinearGradient
+              colors={['#8B5CF6', '#6D28D9']}
+              style={styles.statCard}
+            >
+              <TrendingUp color="#FFFFFF" size={24} />
+              <Text style={styles.statNumber}>{getStatistics().tipPercentage.toFixed(1)}%</Text>
+              <Text style={styles.statLabel}>Tip Percentage</Text>
+            </LinearGradient>
           </View>
         </View>
       )}
@@ -441,24 +346,16 @@ export default function HistoryScreen() {
             <Text style={styles.emptyMessage}>
               {selectedPeriod === 'all' 
                 ? "You haven't completed any deliveries yet."
-                : `No deliveries found for ${selectedPeriod}.`
-              }
+                : `No deliveries found for ${selectedPeriod}.`}
             </Text>
           </View>
         ) : (
           filteredOrders.map((order, index) => (
-            <TouchableOpacity 
-              key={order.orderId || index}
-              style={styles.orderCard}
-              onPress={() => {
-                // Navigate to order details if needed
-                console.log('Order selected:', order.orderId);
-              }}
-            >
+            <View key={index} style={styles.orderCard}>
               <View style={styles.orderHeader}>
                 <View style={styles.orderInfo}>
-                  <Text style={styles.orderId}>#{order.order_id || order.orderId || 'N/A'}</Text>
-                  <Text style={styles.orderDate}>{formatDate(order.completedAt)}</Text>
+                  <Text style={styles.orderDate}>{formatDate(order.updatedAt)}</Text>
+                  <Text style={styles.orderTime}>{formatTime(order.updatedAt)}</Text>
                 </View>
                 <View style={styles.orderEarnings}>
                   <Text style={styles.earningsAmount}>
@@ -470,37 +367,30 @@ export default function HistoryScreen() {
 
               <View style={styles.orderDetails}>
                 <View style={styles.detailRow}>
-                  <MapPin color="#6B7280" size={16} />
-                  <Text style={styles.detailText} numberOfLines={1}>
-                    {order.restaurantName || order.restaurantLocation?.name || 'Restaurant'}
-                  </Text>
+                  <Text style={styles.detailLabel}>Restaurant:</Text>
+                  <Text style={styles.detailText}>{order.restaurantName || 'N/A'}</Text>
                 </View>
                 <View style={styles.detailRow}>
-                  <Clock color="#6B7280" size={16} />
-                  <Text style={styles.detailText}>
-                    Completed: {formatTime(order.completedAt)}
-                  </Text>
+                  <Text style={styles.detailLabel}>Description:</Text>
+                  <Text style={styles.detailText}>{order.description || 'N/A'}</Text>
                 </View>
-              </View>
-
-              <View style={styles.orderBreakdown}>
-                <View style={styles.breakdownRow}>
-                  <Text style={styles.breakdownLabel}>Delivery Fee:</Text>
-                  <Text style={styles.breakdownValue}>ETB {order.deliveryFee?.toFixed(2) || '0.00'}</Text>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Delivery Fee:</Text>
+                  <Text style={styles.detailText}>ETB {order.deliveryFee?.toFixed(2) || '0.00'}</Text>
                 </View>
-                <View style={styles.breakdownRow}>
-                  <Text style={styles.breakdownLabel}>Tip:</Text>
-                  <Text style={styles.breakdownValue}>ETB {order.tip?.toFixed(2) || '0.00'}</Text>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Tip:</Text>
+                  <Text style={styles.detailText}>ETB {order.tip?.toFixed(2) || '0.00'}</Text>
                 </View>
               </View>
 
               <View style={styles.orderStatus}>
                 <View style={[styles.statusBadge, styles.completedBadge]}>
                   <CheckCircle color="#10B981" size={14} />
-                  <Text style={styles.statusText}>Completed</Text>
+                  <Text style={styles.statusText}>{order.orderStatus}</Text>
                 </View>
               </View>
-            </TouchableOpacity>
+            </View>
           ))
         )}
       </ScrollView>
@@ -582,32 +472,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     borderRadius: 8,
   },
-  summaryContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    gap: 8,
-  },
-  summaryCard: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  summaryNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginTop: 6,
-    marginBottom: 4,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.9,
-    textAlign: 'center',
-  },
-  analyticsContainer: {
+  statsContainer: {
     margin: 20,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -618,34 +483,36 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  analyticsTitle: {
+  statsTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#1F2937',
     marginBottom: 16,
+    textAlign: 'center',
   },
-  analyticsGrid: {
+  statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
   },
-  analyticsItem: {
+  statCard: {
     flex: 1,
     minWidth: '45%',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#F8FAFC',
+    padding: 16,
     borderRadius: 12,
+    alignItems: 'center',
   },
-  analyticsValue: {
+  statNumber: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1E40AF',
+    color: '#FFFFFF',
+    marginTop: 6,
     marginBottom: 4,
   },
-  analyticsLabel: {
+  statLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#FFFFFF',
+    opacity: 0.9,
     textAlign: 'center',
   },
   ordersList: {
@@ -692,15 +559,15 @@ const styles = StyleSheet.create({
   orderInfo: {
     flex: 1,
   },
-  orderId: {
+  orderDate: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 4,
   },
-  orderDate: {
+  orderTime: {
     fontSize: 14,
     color: '#6B7280',
+    marginTop: 4,
   },
   orderEarnings: {
     alignItems: 'flex-end',
@@ -720,34 +587,17 @@ const styles = StyleSheet.create({
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    width: 100,
   },
   detailText: {
     fontSize: 14,
-    color: '#6B7280',
-    marginLeft: 8,
-    flex: 1,
-  },
-  orderBreakdown: {
-    marginBottom: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-  },
-  breakdownRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  breakdownLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  breakdownValue: {
-    fontSize: 14,
-    fontWeight: '600',
     color: '#1F2937',
+    flex: 1,
   },
   orderStatus: {
     flexDirection: 'row',
@@ -768,98 +618,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#10B981',
     marginLeft: 4,
-  },
-  // Analysis styles
-  analysisContainer: {
-    margin: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  analysisTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  analysisSection: {
-    marginBottom: 20,
-  },
-  analysisSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 12,
-  },
-  bestOrderCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#10B981',
-  },
-  bestOrderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  bestOrderId: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  bestOrderEarnings: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#10B981',
-  },
-  bestOrderRestaurant: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  bestOrderDate: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  trendCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 16,
-  },
-  trendRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  trendLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  trendValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  insightsContainer: {
-    backgroundColor: '#F0F9FF',
-    borderRadius: 12,
-    padding: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#3B82F6',
-  },
-  insightText: {
-    fontSize: 14,
-    color: '#1E40AF',
-    lineHeight: 20,
-    marginBottom: 8,
   },
 });

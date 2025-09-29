@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -37,8 +37,13 @@ export default function OrderDetailsScreen() {
   const [isCompleting, setIsCompleting] = useState(false);
   const [verificationError, setVerificationError] = useState('');
 
-  // Find the order details (either from active order or available orders)
-  const order = activeOrder;
+  // Find the order details (support activeOrder being null, an array, or a single object)
+  const order = useMemo(() => {
+    if (!activeOrder) return null;
+    if (Array.isArray(activeOrder)) return activeOrder[0] || null;
+    if (typeof activeOrder === 'object') return activeOrder;
+    return null;
+  }, [activeOrder]);
 
   const handleVerifyDelivery = async () => {
     if (!verificationCode.trim()) {
@@ -139,15 +144,15 @@ export default function OrderDetailsScreen() {
   };
 
   const handleNavigateToDelivery = () => {
-    if (order?.deliveryLocation?.lat && order?.deliveryLocation?.lng) {
-      console.log('🔍 Navigating to delivery location:', order.deliveryLocation.lat, order.deliveryLocation.lng);
+    if (order?.destinationLocation?.lat && order?.destinationLocation?.lng) {
+      console.log('🔍 Navigating to delivery location:', order.destinationLocation.lat, order.destinationLocation.lng);
       
       // Navigate to map screen with delivery location
       const deliveryLocation = JSON.stringify({
-        lat: order.deliveryLocation.lat,
-        lng: order.deliveryLocation.lng,
+        lat: order.destinationLocation.lat,
+        lng: order.destinationLocation.lng,
         name: 'Delivery Location',
-        address: order.deliveryLocation.address || 'Delivery Address'
+        address: order.destinationLocation.address || 'Delivery Address'
       });
       
       router.push({
@@ -248,7 +253,7 @@ export default function OrderDetailsScreen() {
             <Text style={styles.statusSubtitle}>
               {order.orderStatus === 'Delivering' 
                 ? 'Order is being delivered to customer'
-                : 'Order is ready for pickup'
+                : 'Order is on Delivering'
               }
             </Text>
           </LinearGradient>
@@ -260,7 +265,7 @@ export default function OrderDetailsScreen() {
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Order Code:</Text>
-              <Text style={styles.infoValue}>{order.orderCode || order.order_id || 'N/A'}</Text>
+              <Text style={styles.infoValue}>{order.orderCode}</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Status:</Text>
@@ -269,7 +274,7 @@ export default function OrderDetailsScreen() {
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Created:</Text>
               <Text style={styles.infoValue}>
-                {order.createdAt ? `${formatDate(order.createdAt)} at ${formatTime(order.createdAt)}` : 'N/A'}
+                {order.updatedAt ? `${formatDate(order.updatedAt)} at ${formatTime(order.updatedAt)}` : 'N/A'}
               </Text>
             </View>
             <View style={styles.infoRow}>
@@ -299,9 +304,9 @@ export default function OrderDetailsScreen() {
               {order.restaurantName || order.restaurantLocation?.name || 'Restaurant'}
             </Text>
             <Text style={styles.locationAddress}>
-              {(typeof order.restaurantLocation?.address === 'string' ? order.restaurantLocation.address : null) || 
-               (order.restaurantLocation?.lat && order.restaurantLocation?.lng ? 
-                 `Lat: ${order.restaurantLocation.lat.toFixed(4)}, Lng: ${order.restaurantLocation.lng.toFixed(4)}` : 
+              {(typeof order?.restaurantLocation?.address === 'string' ? order.restaurantLocation.address : null) || 
+               (order?.restaurantLocation?.lat != null && order?.restaurantLocation?.lng != null ? 
+                 `Lat: ${Number(order.restaurantLocation.lat).toFixed(4)}, Lng: ${Number(order.restaurantLocation.lng).toFixed(4)}` : 
                  'Restaurant Address')}
             </Text>
             
@@ -324,9 +329,9 @@ export default function OrderDetailsScreen() {
               <Text style={styles.locationTitle}>Delivery Location</Text>
             </View>
             <Text style={styles.locationAddress}>
-              {(typeof order.deliveryLocation?.address === 'string' ? order.deliveryLocation.address : null) || 
-               (order.deliveryLocation?.lat && order.deliveryLocation?.lng ? 
-                 `Lat: ${order.deliveryLocation.lat.toFixed(4)}, Lng: ${order.deliveryLocation.lng.toFixed(4)}` : 
+              {(typeof order?.destinationLocation?.address === 'string' ? order.destinationLocation.address : null) || 
+               (order?.destinationLocation?.lat != null && order?.destinationLocation?.lng != null ? 
+                 `Lat: ${Number(order.destinationLocation.lat).toFixed(4)}, Lng: ${Number(order.destinationLocation.lng).toFixed(4)}` : 
                  'Delivery Address')}
             </Text>
             
@@ -362,7 +367,7 @@ export default function OrderDetailsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Order Items</Text>
           <View style={styles.itemsCard}>
-            {order.items?.map((item, index) => (
+            {(order.items || []).map((item, index) => (
               <View key={index} style={styles.itemRow}>
                 <Text style={styles.itemName}>{item.name}</Text>
                 <Text style={styles.itemQuantity}>x{item.quantity}</Text>

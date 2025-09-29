@@ -7,31 +7,11 @@ import React, {
   useCallback,
 } from "react";
 import { Alert } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+// Note: removed persistent local storage for accepted orders - using in-memory state only
 import io from "socket.io-client";
 import { useAuth } from "./auth-provider";
 import locationService from "../services/location-service";
 
-// Reverse geocoding function using OpenStreetMap (free, no API key required)
-const getAddressFromCoordinates = async (lat, lng) => {
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
-    );
-    const data = await response.json();
-    
-    if (data.display_name) {
-      // Extract a more user-friendly address
-      const addressParts = data.display_name.split(', ');
-      // Take the first 3-4 parts for a cleaner address
-      return addressParts.slice(0, 4).join(', ');
-    }
-    return null;
-  } catch (error) {
-    console.error('Error fetching address from coordinates:', error);
-    return null;
-  }
-};
 
 const DeliveryContext = createContext();
 export const useDelivery = () => useContext(DeliveryContext);
@@ -53,9 +33,7 @@ export const DeliveryProvider = ({ children }) => {
     newOrderNotification: false, // Track if there's a new order notification
     isLoadingOrders: false, // Loading state for API calls
     ordersError: null, // Error state for API calls
-    acceptedOrder: null, // Store accepted order information
-    storedOrder: null, // Store order from phone storage
-    isLoadingStoredOrder: false, // Loading state for stored order
+  acceptedOrder: null, // Store accepted order information (in-memory only)
     deliveryAnalytics: null, // Analytics data for delivery history
     isLoadingHistory: false, // Loading state for history API
     historyError: null, // Error state for history API
@@ -267,116 +245,82 @@ export const DeliveryProvider = ({ children }) => {
     };
   }, [token, userId]);
 
-  // 📱 Storage functions for accepted orders
-  const STORAGE_KEYS = {
-    ACCEPTED_ORDER: 'delivery_accepted_order',
-    ORDER_TIMESTAMP: 'delivery_order_timestamp',
-  };
+  // Note: persistent local storage for accepted orders has been removed.
 
-  const fetchActiveOrder = useCallback(async () => {
-    console.log("🍲 Fetching active cooked order from API...");
-    
+const fetchActiveOrder = useCallback(
+  async (status) => {
+    if (!status) {
+      console.error("❌ Status parameter is required");
+      setState((prev) => ({
+        ...prev,
+        isLoadingActiveOrder: false,
+        activeOrderError: "Status parameter is required.",
+      }));
+      return;
+    }
+
     if (!token) {
       console.error("❌ No authentication token available");
       setState((prev) => ({
         ...prev,
         isLoadingActiveOrder: false,
-        activeOrderError: 'Authentication required. Please log in again.',
+        activeOrderError: "Authentication required. Please log in again.",
       }));
       return;
     }
-    
+
     try {
-      setState((prev) => ({ ...prev, isLoadingActiveOrder: true, activeOrderError: null }));
+      setState((prev) => ({
+        ...prev,
+        isLoadingActiveOrder: true,
+        activeOrderError: null,
+      }));
+
+      // ✅ Pass status as a query parameter
+      const response = await fetch(
+        `https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=${status}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
       
-      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+
 
       const data = await response.json();
-      
 
-      if (response.ok && data.status === 'success') {
-        console.log("✅ Active order data fetched successfully:", data.data);
-        
-        // Check if there's an active order in the response
-        if (data.data && data.data.orderCode) {
-          console.log("🍲 Found active order:", data.data.orderCode);
-          
-          const activeOrderData = {
-            orderId: data.data.orderId || 'N/A', // Not provided in response
-            order_id: data.data.orderCode,
-            orderCode: data.data.orderCode,
-            restaurantLocation: {
-              name: data.data.restaurantName || 'Restaurant',
-              address: 'Restaurant Location', // Not provided in response
-              lat: data.data.restaurnatLocation?.lat || 0, // Note: API has typo "restaurnatLocation"
-              lng: data.data.restaurnatLocation?.lng || 0,
-            },
-            deliveryLocation: {
-              lat: data.data.destinationLocation?.lat || 0,
-              lng: data.data.destinationLocation?.lng || 0,
-              address: 'Delivery Location', // Not provided in response
-            },
-            deliveryFee: data.data.deliveryFee || 0,
-            tip: data.data.tip || 0,
-            grandTotal: (data.data.deliveryFee || 0) + (data.data.tip || 0),
-            orderStatus: data.data.orderStatus || 'Delivering',
-            verificationCode: data.data.pickUpVerificationCode || 'N/A',
-            userPhone: data.data.phone || 'N/A',
-            createdAt: new Date().toISOString(), // Not provided in response
-            customer: {
-              name: data.data.userName || 'Customer',
-              phone: data.data.phone || 'N/A',
-            },
-            items: [
-              { name: 'Order Items', quantity: 1 }
-            ],
-            specialInstructions: data.data.description || 'Please handle with care',
-            // Additional fields from API
-            userName: data.data.userName,
-            phone: data.data.phone,
-            restaurantName: data.data.restaurantName,
-            description: data.data.description,
-            pickUpVerificationCode: data.data.pickUpVerificationCode,
-          };
+      console.log(`📦 API response for status ${status}:`, data);
 
-          setState((prev) => ({
-            ...prev,
-            activeOrder: activeOrderData,
-            isLoadingActiveOrder: false,
-            activeOrderError: null,
-          }));
-        } else {
-          console.log("🍲 No active order found");
-          setState((prev) => ({
-            ...prev,
-            activeOrder: null,
-            isLoadingActiveOrder: false,
-            activeOrderError: null,
-          }));
-        }
-      } else {
-        console.error("❌## Failed to fetch active order:", data.message);
+      if (response.ok && data.status === "success") {
+        console.log(`✅ Orders with status "${status}" fetched successfully`);
         setState((prev) => ({
           ...prev,
           isLoadingActiveOrder: false,
-          activeOrderError: data.message || 'Failed to fetch active order',
+          activeOrder: data.data, // array of orders for this status
+        }));
+      } else {
+        console.error("❌ Failed to fetch orders:", data.message);
+        setState((prev) => ({
+          ...prev,
+          isLoadingActiveOrder: false,
+          activeOrderError: data.message || "Failed to fetch orders.",
         }));
       }
     } catch (error) {
-      console.error("❌ Error fetching active order:", error);
+      console.error("🔥 Error fetching orders:", error);
       setState((prev) => ({
         ...prev,
         isLoadingActiveOrder: false,
-        activeOrderError: 'Network error. Please check your connection.',
+        activeOrderError: error.message || "An unexpected error occurred.",
       }));
     }
-  }, [token]);
+  },
+  [token]
+);
+
 
 
 
@@ -618,8 +562,7 @@ export const DeliveryProvider = ({ children }) => {
       }
       
       // Clear stored order data
-      await AsyncStorage.removeItem(STORAGE_KEYS.ACCEPTED_ORDER);
-      await AsyncStorage.removeItem(STORAGE_KEYS.ORDER_TIMESTAMP);
+      // persistent storage for orders removed; nothing to clear
       
       // Reset state
       setState((prev) => ({
@@ -638,8 +581,7 @@ export const DeliveryProvider = ({ children }) => {
         isLoadingOrders: false,
         ordersError: null,
         acceptedOrder: null,
-        storedOrder: null,
-        isLoadingStoredOrder: false,
+        // storedOrder and related persistent flags removed
         deliveryAnalytics: null,
         isLoadingHistory: false,
         historyError: null,
@@ -836,222 +778,73 @@ export const DeliveryProvider = ({ children }) => {
   }, [token]);
 
   // 📊 Fetch delivery person order history
-  const fetchDeliveryHistory = useCallback(async () => {
-    console.log("📊 Fetching delivery history from API...");
-  
-    if (!token) {
-      console.error("❌ No authentication token available");
-      setState((prev) => ({
-        ...prev,
-        isLoadingHistory: false,
-        historyError: "Authentication required. Please log in again.",
-      }));
-      return;
-    }
-  
-    try {
-      setState((prev) => ({
-        ...prev,
-        isLoadingHistory: true,
-        historyError: null,
-      }));
-  
-      const response = await fetch(
-        "https://gebeta-delivery1.onrender.com/api/v1/orders/orderHistory",
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-     
-      const data = await response.json();
-      console.log("🔍 Delivery history raw data:", data);
-  
-      if (!response.ok || data?.status !== "success") {
-        throw new Error(data?.message || "Failed to fetch delivery history");
-      }
-  
-      // Extract orders from the nested data structure
-      const rawOrders = data.data?.orders || [];
-      console.log("📋 Orders found:", rawOrders.length, "orders");
-  
-      if (rawOrders.length === 0) {
-        console.warn("⚠️ No delivery history found.");
-        setState((prev) => ({
-          ...prev,
-          orderHistory: [],
-          deliveryAnalytics: calculateDeliveryAnalytics([]),
-          isLoadingHistory: false,
-          historyError: null,
-        }));
-        return;
-      }
-  
-      // Transform the simplified API response structure
-      const transformedHistory = rawOrders.map((order, index) => {
-        return {
-          orderId: order.orderId || `order-${index + 1}`, // Use actual order ID if available
-          order_id: order.orderId || `ORD-${String(index + 1).padStart(6, '0')}`, // Use actual order ID if available
-          restaurantLocation: {
-            name: order.restaurantName || "Unknown Restaurant",
-            address: "Restaurant Location", // Not provided in API
-            lat: 0, // Not provided in API
-            lng: 0, // Not provided in API
-          },
-          deliveryLocation: {
-            lat: 0, // Not provided in API
-            lng: 0, // Not provided in API
-            address: "Delivery Location", // Not provided in API
-          },
-          deliveryFee: order.deliveryFee || 0,
-          tip: order.tip || 0,
-          grandTotal: (order.deliveryFee || 0) + (order.tip || 0),
-          orderStatus: "Completed", // All orders from this endpoint are completed
-          verificationCode: "N/A", // Not provided in API
-          userPhone: "N/A", // Not provided in API
-          createdAt: order.completedAt || new Date().toISOString(), // Use completedAt as createdAt
-          customer: {
-            name: "Customer",
-            phone: "N/A",
-          },
-          items: [
-            { name: "Order Items", quantity: 1 }
-          ],
-          specialInstructions: "Please handle with care",
-          geocodingStatus: {
-            restaurant: "not_available",
-            delivery: "not_available",
-          },
-          transaction: {
-            status: "Completed",
-            refId: "N/A",
-            createdAt: order.completedAt || null,
-          },
-        };
-      });
-  
-      const analytics = calculateDeliveryAnalytics(transformedHistory);
-  
-      setState((prev) => ({
-        ...prev,
-        orderHistory: transformedHistory,
-        deliveryAnalytics: analytics,
-        isLoadingHistory: false,
-        historyError: null,
-      }));
-    } catch (error) {
-      console.error("❌ Error fetching delivery history:", error);
-      setState((prev) => ({
-        ...prev,
-        isLoadingHistory: false,
-        historyError: error.message || "Network error. Please check your connection.",
-      }));
-    }
-  }, [token]);
-  
+const fetchDeliveryHistory = useCallback(async () => {
+  console.log("📊 Fetching delivery history from API...");
 
-  // 🍲 Fetch active cooked order (the order that's cooked but not completed)
-  
-  // 📈 Calculate delivery analytics
-  const calculateDeliveryAnalytics = useCallback((orders) => {
-    if (!orders || orders.length === 0) {
-      return {
-        totalDeliveries: 0,
-        totalEarnings: 0,
-        totalDeliveryFees: 0,
-        totalTips: 0,
-        averageOrderValue: 0,
-        averageDeliveryFee: 0,
-        averageTip: 0,
-        completedOrders: 0,
-        cancelledOrders: 0,
-        inProgressOrders: 0,
-        statusBreakdown: {},
-        monthlyEarnings: {},
-        topRestaurants: {},
-        deliveryStats: {
-          totalDistance: 0,
-          averageDistance: 0,
-          totalTime: 0,
-          averageTime: 0,
-        }
-      };
-    }
+  if (!token) {
+    console.error("❌ No authentication token available");
+    setState((prev) => ({
+      ...prev,
+      isLoadingHistory: false,
+      historyError: "Authentication required. Please log in again.",
+    }));
+    return;
+  }
 
-    // Filter only completed orders for earnings calculations
-    const completedOrders = orders.filter(order => 
-      order.orderStatus === 'Completed' || 
-      order.orderStatus === 'Delivered' ||
-      order.orderStatus === 'completed' ||
-      order.orderStatus === 'delivered'
+  try {
+    setState((prev) => ({
+      ...prev,
+      isLoadingHistory: true,
+      historyError: null,
+    }));
+
+    const response = await fetch(
+      "https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=Completed",
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      }
     );
 
-    const totalDeliveries = orders.length; // Total orders (all statuses)
-    const completedDeliveries = completedOrders.length; // Only completed orders
-    
-    // Calculate earnings only from completed orders
-    const totalEarnings = completedOrders.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0);
-    const totalDeliveryFees = completedOrders.reduce((sum, order) => sum + (order.deliveryFee || 0), 0);
-    const totalTips = completedOrders.reduce((sum, order) => sum + (order.tip || 0), 0);
-    const totalOrderValue = completedOrders.reduce((sum, order) => sum + (order.grandTotal || 0), 0);
-    
-    // Calculate averages based on completed orders only
-    const averageOrderValue = completedDeliveries > 0 ? totalOrderValue / completedDeliveries : 0;
-    const averageDeliveryFee = completedDeliveries > 0 ? totalDeliveryFees / completedDeliveries : 0;
-    const averageTip = completedDeliveries > 0 ? totalTips / completedDeliveries : 0;
+    const data = await response.json();
+    console.log("🔍 Delivery history raw data:", data);
 
-    // Status breakdown
-    const statusBreakdown = orders.reduce((acc, order) => {
-      const status = order.orderStatus || 'Unknown';
-      acc[status] = (acc[status] || 0) + 1;
-      return acc;
-    }, {});
+    if (!response.ok || data?.status !== "success") {
+      throw new Error(data?.message || "Failed to fetch delivery history");
+    }
 
-    const completedOrdersCount = statusBreakdown['Completed'] || statusBreakdown['Delivered'] || statusBreakdown['completed'] || statusBreakdown['delivered'] || 0;
-    const cancelledOrders = statusBreakdown['Cancelled'] || statusBreakdown['cancelled'] || 0;
-    const inProgressOrders = statusBreakdown['In Progress'] || statusBreakdown['Cooked'] || statusBreakdown['cooked'] || 0;
+    // Validate data structure
+    if (!Array.isArray(data.data)) {
+      throw new Error("Invalid data format received from server");
+    }
 
-    // Monthly earnings (mock data since we don't have actual dates) - based on completed orders only
-    const monthlyEarnings = {
-      'January': Math.floor(totalEarnings * 0.1),
-      'February': Math.floor(totalEarnings * 0.15),
-      'March': Math.floor(totalEarnings * 0.2),
-      'April': Math.floor(totalEarnings * 0.25),
-      'May': Math.floor(totalEarnings * 0.3),
-    };
+    setState((prev) => ({
+      ...prev,
+      isLoadingHistory: false,
+      deliveryHistory: data.data.map(order => ({
+        restaurantName: order.restaurantName,
+        deliveryFee: order.deliveryFee,
+        tip: order.tip,
+        description: order.description,
+        orderStatus: order.orderStatus,
+        updatedAt: new Date(order.updatedAt).toISOString(), // Ensure consistent date format
+      })),
+      historyError: null,
+      totalCount: data.count,
+    }));
 
-    // Top restaurants - only from completed orders
-    const topRestaurants = completedOrders.reduce((acc, order) => {
-      const restaurantName = order.restaurantLocation?.name || 'Unknown Restaurant';
-      acc[restaurantName] = (acc[restaurantName] || 0) + 1;
-      return acc;
-    }, {});
-
-    return {
-      totalDeliveries, // Total orders (all statuses)
-      totalEarnings, // Only from completed orders
-      totalDeliveryFees, // Only from completed orders
-      totalTips, // Only from completed orders
-      averageOrderValue, // Based on completed orders only
-      averageDeliveryFee, // Based on completed orders only
-      averageTip, // Based on completed orders only
-      completedOrders: completedOrdersCount, // Count of completed orders
-      cancelledOrders,
-      inProgressOrders,
-      statusBreakdown,
-      monthlyEarnings,
-      topRestaurants, // Only from completed orders
-      deliveryStats: {
-        totalDistance: completedDeliveries * 2.5, // Mock average distance - only completed orders
-        averageDistance: 2.5,
-        totalTime: completedDeliveries * 30, // Mock average time in minutes - only completed orders
-        averageTime: 30,
-      }
-    };
-  }, []);
+  } catch (error) {
+    console.error("❌ Error fetching delivery history:", error);
+    setState((prev) => ({
+      ...prev,
+      isLoadingHistory: false,
+      historyError: error.message || "Network error. Please check your connection.",
+    }));
+  }
+}, [token]);
 
   // ✅ Verify delivery function
   const verifyDelivery = useCallback(async (orderId, verificationCode) => {
@@ -1154,12 +947,8 @@ export const DeliveryProvider = ({ children }) => {
 
   // 🔄 Refresh stored order (useful for checking order status)
   const refreshStoredOrder = useCallback(async () => {
-    if (state.storedOrder) {
-      console.log('🔄 Refreshing stored order status...');
-      // You can add API call here to check current order status
-      // and update the stored order accordingly
-    }
-  }, [state.storedOrder]);
+    // Persistent stored order was removed; nothing to refresh.
+  }, []);
 
   // 📍 Location tracking functions
   const startLocationTracking = useCallback(async () => {
@@ -1234,7 +1023,7 @@ export const DeliveryProvider = ({ children }) => {
         verifyDelivery,
         // History and analytics functions
         fetchDeliveryHistory,
-        calculateDeliveryAnalytics,
+     
         // Active order functions
         fetchActiveOrder,
         // Location tracking functions

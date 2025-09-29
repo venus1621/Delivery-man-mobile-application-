@@ -141,8 +141,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         AsyncStorage.removeItem('userProfile'),
         AsyncStorage.removeItem('isOnline'),
         // Clear delivery-related stored data
-        AsyncStorage.removeItem('delivery_accepted_order'),
-        AsyncStorage.removeItem('delivery_order_timestamp'),
+  // delivery-related persistent storage removed from app
       ]);
 
       console.log('🧹 All stored data cleared');

@@ -244,7 +244,7 @@ export default function DashboardScreen() {
   useEffect(() => {
     if (isOnline) {
       fetchAvailableOrders();
-      fetchActiveOrder();
+      fetchActiveOrder("Cooked");
     }
   }, [isOnline, fetchAvailableOrders, fetchActiveOrder]);
 
@@ -272,7 +272,7 @@ export default function DashboardScreen() {
         setShowVerificationModal(false);
         setOrderIdToVerify(null);
         // Fetch updated active order after successful verification
-        await fetchActiveOrder();
+        await fetchActiveOrder("Cooked");
       }
     } catch (error) {
       console.error('Error verifying delivery:', error);
@@ -406,45 +406,57 @@ export default function DashboardScreen() {
         </View>
 
         {/* Currently Delivering Order */}
-        {activeOrder && activeOrder.orderStatus === 'Delivering' && (
-        
-          <View style={styles.activeOrderContainer}>
-            <Text style={styles.sectionTitle}>🚚 Currently Delivering</Text>
-            <TouchableOpacity 
-              style={styles.activeOrderCard}
-              onPress={() => router.push(`/order/${activeOrder.order_id || activeOrder.orderCode}`)}
-            >
-              <LinearGradient
-                colors={['#3B82F6', '#1D4ED8']}
-                style={styles.activeOrderGradient}
-              >
-                <View style={styles.activeOrderHeader}>
-                  <Text style={styles.activeOrderCode}>{activeOrder.orderCode || activeOrder.order_id}</Text>
-                  <Text style={styles.activeOrderStatus}>{activeOrder.orderStatus}</Text>
-                </View>
-                
-                <View style={styles.activeOrderInfo}>
-                  <View style={styles.activeOrderInfoRow}>
-                    <Text style={styles.activeOrderLabel}>Restaurant:</Text>
-                    <Text style={styles.activeOrderValue}>{activeOrder.restaurantName || activeOrder.restaurantLocation?.name || 'Unknown'}</Text>
-                  </View>
-                  <View style={styles.activeOrderInfoRow}>
-                    <Text style={styles.activeOrderLabel}>Pickup Code:</Text>
-                    <Text style={styles.activeOrderValue}>{activeOrder.pickUpVerificationCode || activeOrder.verificationCode || 'N/A'}</Text>
-                  </View>
-                  <View style={styles.activeOrderInfoRow}>
-                    <Text style={styles.activeOrderLabel}>Total Earnings:</Text>
-                    <Text style={styles.activeOrderEarnings}>ETB {(activeOrder.grandTotal || 0).toFixed(2)}</Text>
-                  </View>
-                </View>
-                
-                <View style={styles.activeOrderFooter}>
-                  <Text style={styles.activeOrderTapText}>Tap for details</Text>
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
+       {activeOrder && activeOrder.length > 0 && (
+  <View style={styles.activeOrderContainer}>
+    <Text style={styles.sectionTitle}>🚚 Currently Delivering</Text>
+
+    {activeOrder.map((order, index) => (
+      <TouchableOpacity
+        key={index}
+        style={styles.activeOrderCard}
+        onPress={() => router.push(`/order/${order.orderCode}`)}
+      >
+        <LinearGradient
+          colors={['#3B82F6', '#1D4ED8']}
+          style={styles.activeOrderGradient}
+        >
+          <View style={styles.activeOrderHeader}>
+            <Text style={styles.activeOrderCode}>{order.orderCode}</Text>
+            <Text style={styles.activeOrderStatus}>{order.orderStatus}</Text>
           </View>
-        )}
+
+          <View style={styles.activeOrderInfo}>
+            <View style={styles.activeOrderInfoRow}>
+              <Text style={styles.activeOrderLabel}>Restaurant:</Text>
+              <Text style={styles.activeOrderValue}>
+                {order.restaurantName || 'Unknown'}
+              </Text>
+            </View>
+
+            <View style={styles.activeOrderInfoRow}>
+              <Text style={styles.activeOrderLabel}>Pickup Code:</Text>
+              <Text style={styles.activeOrderValue}>
+                {order.pickUpVerificationCode || 'N/A'}
+              </Text>
+            </View>
+
+            <View style={styles.activeOrderInfoRow}>
+              <Text style={styles.activeOrderLabel}>Total Earnings:</Text>
+              <Text style={styles.activeOrderEarnings}>
+                ETB {(order.deliveryFee + order.tip).toFixed(2)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.activeOrderFooter}>
+            <Text style={styles.activeOrderTapText}>Tap for details</Text>
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+    ))}
+  </View>
+)}
+
 
         {/* Quick Actions */}
         <View style={styles.quickActionsContainer}>
