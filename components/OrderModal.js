@@ -112,7 +112,7 @@ export default function OrderModal({
       <View style={styles.overlay}>
         <View style={styles.modalContainer}>
           <LinearGradient
-            colors={['#FFFFFF', '#F8FAFC']}
+            colors={['#f5ececff', '#F8FAFC']}
             style={styles.modalContent}
           >
             {/* Header */}
@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContainer: {
-    width: '90%',
+    width:'100px' ,
     maxHeight: '85%',
     borderRadius: 20,
     overflow: 'hidden',

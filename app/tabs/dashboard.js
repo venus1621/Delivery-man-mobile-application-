@@ -245,6 +245,7 @@ export default function DashboardScreen() {
     if (isOnline) {
       fetchAvailableOrders();
       fetchActiveOrder("Cooked");
+      fetchActiveOrder('Delivering')
     }
   }, [isOnline, fetchAvailableOrders, fetchActiveOrder]);
 
@@ -636,7 +637,9 @@ export default function DashboardScreen() {
       </ScrollView>
       
              {/* Order Modal */}
-       {showOrderModalState && pendingOrderPopup && (
+       {showOrderModalState && pendingOrderPopup &&  (
+        
+        
          <OrderModal
            visible={showOrderModalState}
            order={pendingOrderPopup}

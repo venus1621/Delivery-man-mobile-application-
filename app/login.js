@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,11 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, Phone, Lock, Eye, EyeOff } from 'lucide-react-native';
+import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../providers/auth-provider';
 
@@ -21,147 +20,184 @@ export default function LoginScreen() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const handleLogin = async () => {
     if (!phone.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter both phone number and password');
+      setErrorMessage('Please enter both phone number and password');
       return;
     }
-
-    const result = await login(phone.trim(), password.trim());
+    const fullPhone = `+251${phone.trim()}`;
+    const result = await login(fullPhone, password.trim());
     
     if (result.success) {
-      console.log('✅ Login successful');
-      console.log('👤 Delivery Person ID stored:', result.userId);
-      router.replace('/tabs/dashboard');
+      setSuccessMessage('Login successful! Redirecting...');
+      setTimeout(() => {
+        router.replace('/tabs/dashboard');
+      }, 1500);
     } else {
-      Alert.alert('Login Failed', result.message || 'Invalid credentials');
+      setErrorMessage(result.message || 'Invalid credentials');
     }
   };
 
-  const handleDemoLogin = async () => {
-    const result = await login('+251911111111', '+251911111111');
-    
-    if (result.success) {
-      console.log('✅ Demo login successful');
-      console.log('👤 Demo Delivery Person ID stored:', result.userId);
-      router.replace('/tabs/dashboard');
-    } else {
-      Alert.alert('Demo Login Failed', result.message || 'Failed to login with demo account');
+  useEffect(() => {
+    if (errorMessage || successMessage) {
+      const timer = setTimeout(() => {
+        setErrorMessage('');
+        setSuccessMessage('');
+      }, 3000);
+      return () => clearTimeout(timer);
     }
-  };
+  }, [errorMessage, successMessage]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
+    <View style={styles.container}>
+      <LinearGradient
+        colors={['#667eea', '#764ba2']}
+        style={styles.gradientBackground}
       >
-        <View style={styles.content}>
-          {/* Header */}
-          <View style={styles.header}>
-            <LinearGradient
-              colors={['#1E40AF', '#3B82F6']}
-              style={styles.logoContainer}
-            >
-              <Truck color="#FFFFFF" size={32} />
-            </LinearGradient>
-            <Text style={styles.title}>Delivery Driver</Text>
-            <Text style={styles.subtitle}>Sign in to start delivering</Text>
-          </View>
-
-          {/* Form */}
-          <View style={styles.form}>
-            <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
-                <Phone color="#6B7280" size={20} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone number (+251911111111)"
-                  placeholderTextColor="#9CA3AF"
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  testID="phone-input"
-                />
-              </View>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <View style={styles.inputWrapper}>
-                <Lock color="#6B7280" size={20} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor="#9CA3AF"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  testID="password-input"
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeIcon}
+        <SafeAreaView style={styles.safeArea}>
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardView}
+          >
+            <View style={styles.content}>
+              {/* Header */}
+              <View style={styles.header}>
+                <LinearGradient
+                  colors={['rgba(255,255,255,0.95)', 'rgba(255,255,255,0.9)']}
+                  style={styles.logoContainer}
                 >
-                  {showPassword ? (
-                    <EyeOff color="#6B7280" size={20} />
-                  ) : (
-                    <Eye color="#6B7280" size={20} />
-                  )}
-                </TouchableOpacity>
+                  <Truck color="#667eea" size={32} />
+                </LinearGradient>
+                <Text style={styles.title}>Gebeta Delivery</Text>
+                <Text style={styles.subtitle}>Sign in to start delivering</Text>
               </View>
+
+              {/* Form Card */}
+              <View style={styles.formCard}>
+                <LinearGradient
+                  colors={['rgba(255,255,255,0.95)', 'rgba(255,255,255,0.9)']}
+                  style={styles.formGradient}
+                >
+                  {/* Phone Input */}
+                  <View style={styles.inputContainer}>
+                    <View style={styles.inputWrapper}>
+                      <View style={styles.countryCodeContainer}>
+                        <Text style={styles.countryCode}>+251</Text>
+                      </View>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: 'transparent' }]}
+                        placeholder="911111111"
+                        placeholderTextColor="#9ca3af"
+                        value={phone}
+                        onChangeText={setPhone}
+                        keyboardType="phone-pad"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        testID="phone-input"
+                      />
+                    </View>
+                  </View>
+
+                  {/* Password Input */}
+                  <View style={styles.inputContainer}>
+                    <View style={styles.inputWrapper}>
+                      <View style={[styles.inputIcon, { backgroundColor: 'rgba(107, 114, 128, 0.1)' }]}>
+                        <Lock color="#6b7280" size={20} />
+                      </View>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: 'transparent' }]}
+                        placeholder="Password"
+                        placeholderTextColor="#9ca3af"
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        testID="password-input"
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowPassword(!showPassword)}
+                        style={styles.eyeIcon}
+                      >
+                        {showPassword ? (
+                          <EyeOff color="#6b7280" size={20} />
+                        ) : (
+                          <Eye color="#6b7280" size={20} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Login Button */}
+                  <TouchableOpacity
+                    style={styles.loginButton}
+                    onPress={handleLogin}
+                    disabled={isLoading}
+                    testID="login-button"
+                    activeOpacity={0.7}
+                  >
+                    <LinearGradient
+                      colors={['#667eea', '#764ba2']}
+                      style={styles.loginGradient}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <Text style={styles.loginButtonText}>Sign In</Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>         
+                </LinearGradient>
+              </View>
+
+              {/* Footer */}
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>
+                  Don&apos;t have an account? Contact your administrator
+                </Text>
+              </View>
+
+              {/* Message Banner */}
+              {(errorMessage || successMessage) && (
+                <View style={[
+                  styles.messageBanner,
+                  errorMessage ? styles.errorBanner : styles.successBanner
+                ]}>
+                  <View style={styles.messageIcon}>
+                    {errorMessage ? (
+                      <AlertCircle color="#ef4444" size={20} />
+                    ) : (
+                      <CheckCircle color="#10b981" size={20} />
+                    )}
+                  </View>
+                  <Text style={[
+                    styles.messageText,
+                    errorMessage ? styles.errorText : styles.successText
+                  ]}>
+                    {errorMessage || successMessage}
+                  </Text>
+                </View>
+              )}
             </View>
-
-            {/* Login Button */}
-            <TouchableOpacity
-              style={styles.loginButton}
-              onPress={handleLogin}
-              disabled={isLoading}
-              testID="login-button"
-            >
-              <LinearGradient
-                colors={['#1E40AF', '#3B82F6']}
-                style={styles.loginGradient}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.loginButtonText}>Sign In</Text>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Demo Login Button */}
-            <TouchableOpacity
-              style={styles.demoButton}
-              onPress={handleDemoLogin}
-              disabled={isLoading}
-              testID="demo-login-button"
-            >
-              <Text style={styles.demoButtonText}>Use Demo Account</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              Don&apos;t have an account? Contact your administrator
-            </Text>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+  },
+  gradientBackground: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
   },
   keyboardView: {
     flex: 1,
@@ -173,7 +209,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 48,
+    marginBottom: 32,
   },
   logoContainer: {
     width: 80,
@@ -181,52 +217,97 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 24,
-    shadowColor: '#1E40AF',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 8,
+    color: '#FFFFFF',
+    marginBottom: 4,
   },
   subtitle: {
     fontSize: 16,
-    color: '#6B7280',
+    color: '#e5e7eb',
     textAlign: 'center',
   },
-  form: {
+  formCard: {
     marginBottom: 32,
+    borderRadius: 20,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  formGradient: {
+    padding: 24,
   },
   inputContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.8)',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
     paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    paddingVertical: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  },
+  countryCodeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  countryCode: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '600',
   },
   inputIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
   input: {
     flex: 1,
-    height: 56,
     fontSize: 16,
-    color: '#1F2937',
+    color: '#1f2937',
   },
   eyeIcon: {
     padding: 4,
@@ -234,12 +315,18 @@ const styles = StyleSheet.create({
   loginButton: {
     borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 16,
-    shadowColor: '#1E40AF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    marginTop: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   loginGradient: {
     height: 56,
@@ -251,26 +338,52 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-  demoButton: {
-    height: 56,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  demoButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
   footer: {
     alignItems: 'center',
   },
   footerText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#e5e7eb',
     textAlign: 'center',
+  },
+  messageBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginHorizontal: 24,
+    marginTop: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  successBanner: {
+    backgroundColor: 'rgba(16, 185, 129, 0.9)',
+  },
+  errorBanner: {
+    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+  },
+  messageIcon: {
+    marginRight: 12,
+  },
+  messageText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  successText: {
+    color: '#FFFFFF',
+  },
+  errorText: {
+    color: '#FFFFFF',
   },
 });

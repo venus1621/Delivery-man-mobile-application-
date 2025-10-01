@@ -302,7 +302,7 @@ const fetchActiveOrder = useCallback(
           activeOrder: data.data, // array of orders for this status
         }));
       } else {
-        console.error("❌ Failed to fetch orders:", data.message);
+        
         setState((prev) => ({
           ...prev,
           isLoadingActiveOrder: false,
