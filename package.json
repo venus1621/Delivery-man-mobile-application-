@@ -19,6 +19,7 @@
     "ajv": "^8.17.1",
     "ajv-keywords": "^5.1.0",
     "ansi-escapes": "^7.1.0",
+    "eas-cli": "^16.20.1",
     "expo": "^54.0.10",
     "expo-blur": "~15.0.7",
     "expo-constants": "~18.0.9",

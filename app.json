@@ -51,6 +51,14 @@
       "assets/**/*",
       "components/**/*",
       "providers/**/*"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "origin": "https://delivery.gebeta.com/"
+      },
+      "eas": {
+        "projectId": "a1342bd9-7823-4284-9bc1-a70e0ce44fd9"
+      }
+    }
   }
 }

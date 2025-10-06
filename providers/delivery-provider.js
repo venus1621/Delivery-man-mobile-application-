@@ -107,6 +107,13 @@ export const DeliveryProvider = ({ children }) => {
         socketRef.current.emit('locationUpdate', {
           userId,
           location: {
+
+            userName:user?.firstName + ' ' + user?.lastName,
+            userPhone:user?.phone,
+
+            userDeliveryMethod:user?.deliveryMethod,
+            // userDeliveryStatus:user?.deliveryStatus,
+            
             latitude: currentLocation.latitude,
             longitude: currentLocation.longitude,
             accuracy: currentLocation.accuracy,
