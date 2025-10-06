@@ -65,7 +65,7 @@ class LocationService {
         {
           accuracy: Location.Accuracy.High,
           timeInterval: 5000, // Update every 5 seconds
-          distanceInterval: 10, // Update every 10 meters
+          // distanceInterval: 10, // Update every 10 meters
         },
         (location) => {
           this.updateLocation({

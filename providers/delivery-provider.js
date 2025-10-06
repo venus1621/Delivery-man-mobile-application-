@@ -46,12 +46,13 @@ export const DeliveryProvider = ({ children }) => {
 
   const socketRef = useRef(null);
   const locationUnsubscribeRef = useRef(null);
+  const locationIntervalRef = useRef(null); // Ref for location sending interval
 
   // 📍 Initialize location tracking
   useEffect(() => {
     const initializeLocationTracking = async () => {
       try {
-        // Subscribe to location updates
+        // Subscribe to location updates (for state updates only, not for sending)
         locationUnsubscribeRef.current = locationService.subscribe((location) => {
           setState((prev) => ({ 
             ...prev, 
@@ -59,19 +60,6 @@ export const DeliveryProvider = ({ children }) => {
             isLocationTracking: true,
             locationError: null
           }));
-
-          // Send location update to server if connected
-          if (socketRef.current && socketRef.current.connected && userId) {
-            socketRef.current.emit('locationUpdate', {
-              userId,
-              location: {
-                latitude: location.latitude,
-                longitude: location.longitude,
-                accuracy: location.accuracy,
-                timestamp: location.timestamp
-              }
-            });
-          }
         });
 
         // Start location tracking
@@ -93,8 +81,50 @@ export const DeliveryProvider = ({ children }) => {
       if (locationUnsubscribeRef.current) {
         locationUnsubscribeRef.current();
       }
+      // Clear location sending interval
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
     };
   }, [userId]);
+
+  // 📍 Send location updates every 3 seconds when connected
+  useEffect(() => {
+    if (!socketRef.current || !socketRef.current.connected || !userId || !state.isLocationTracking) {
+      // Clear interval if not connected or not tracking
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Start interval to send location every 3 seconds
+    locationIntervalRef.current = setInterval(() => {
+      const currentLocation = locationService.getCurrentLocation();
+      if (currentLocation) {
+        socketRef.current.emit('locationUpdate', {
+          userId,
+          location: {
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude,
+            accuracy: currentLocation.accuracy,
+            timestamp: currentLocation.timestamp
+          }
+        });
+        console.log('📍 Location sent to server:', currentLocation);
+      }
+    }, 3000); // Every 3 seconds
+
+    // Cleanup interval on unmount or dependency change
+    return () => {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    };
+  }, [socketRef.current?.connected, userId, state.isLocationTracking]);
 
   // 🔌 Connect to socket server with authentication
   useEffect(() => {
@@ -119,6 +149,7 @@ export const DeliveryProvider = ({ children }) => {
 
     socket.on("connect", () => {
       console.log("✅ Connected to socket:", socket.id);
+      
       setState((prev) => ({ ...prev, isConnected: true, socket }));
     });
 
@@ -229,6 +260,11 @@ export const DeliveryProvider = ({ children }) => {
     socket.on("disconnect", () => {
       console.log("❌ Disconnected from socket");
       setState((prev) => ({ ...prev, isConnected: false }));
+      // Clear location interval on disconnect
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
     });
 
     return () => {
@@ -288,7 +324,6 @@ const fetchActiveOrder = useCallback(
         }
       );
       
-
 
       const data = await response.json();
 
@@ -559,6 +594,12 @@ const fetchActiveOrder = useCallback(
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
+      }
+      
+      // Clear location interval
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
       }
       
       // Clear stored order data
@@ -975,6 +1016,11 @@ const fetchDeliveryHistory = useCallback(async () => {
       ...prev, 
       isLocationTracking: false
     }));
+    // Clear interval when stopping tracking
+    if (locationIntervalRef.current) {
+      clearInterval(locationIntervalRef.current);
+      locationIntervalRef.current = null;
+    }
   }, []);
 
   const getCurrentLocation = useCallback(() => {
