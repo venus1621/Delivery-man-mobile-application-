@@ -45,7 +45,18 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to provide delivery services and navigation."
         }
-      ]
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "googleServicesFile": "./android/app/google-services.json"
+          }
+        }
+      ],
+      "expo-maps",
+      "expo-web-browser"
     ],
     "assetBundlePatterns": [
       "assets/**/*",

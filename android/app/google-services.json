@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "403014276965",
+    "firebase_url": "https://gebeta-9595d-default-rtdb.firebaseio.com",
+    "project_id": "gebeta-9595d",
+    "storage_bucket": "gebeta-9595d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:403014276965:android:aead282e171f1d260ff38c",
+        "android_client_info": {
+          "package_name": "com.delivery.gebeta"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBOR6P6mCqgH5nleU09l9iQEk2K9Nq9OeA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

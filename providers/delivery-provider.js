@@ -6,18 +6,21 @@ import React, {
   useRef,
   useCallback,
 } from "react";
-import { Alert } from "react-native";
+import { Alert, Vibration, Platform } from "react-native";
+import { Audio } from 'expo-av';
 // Note: removed persistent local storage for accepted orders - using in-memory state only
 import io from "socket.io-client";
 import { useAuth } from "./auth-provider";
 import locationService from "../services/location-service";
+import { ref, update, push, set } from 'firebase/database';
+import { database } from '../firebase';
 
 
 const DeliveryContext = createContext();
 export const useDelivery = () => useContext(DeliveryContext);
 
 export const DeliveryProvider = ({ children }) => {
-  const { userId, token } = useAuth();
+  const { userId, token, user } = useAuth();
 
   const [state, setState] = useState({
     availableOrders: [],
@@ -47,11 +50,91 @@ export const DeliveryProvider = ({ children }) => {
   const socketRef = useRef(null);
   const locationUnsubscribeRef = useRef(null);
   const locationIntervalRef = useRef(null); // Ref for location sending interval
+  const locationUpdateIntervalRef = useRef(null); // Ref for dynamic interval management
+  const proximityNotifiedRef = useRef(new Set()); // Track which orders have been notified
+  const soundObjectRef = useRef(null); // Ref for alarm sound object
+  const vibrationIntervalRef = useRef(null); // Ref for continuous vibration
 
-  // 📍 Initialize location tracking
+  // 📳 Start continuous vibration
+  const startContinuousVibration = useCallback(() => {
+    // Clear any existing vibration interval
+    if (vibrationIntervalRef.current) {
+      clearInterval(vibrationIntervalRef.current);
+    }
+
+    // Vibrate immediately
+    Vibration.vibrate(1000);
+
+    // Set up continuous vibration (every 2 seconds)
+    vibrationIntervalRef.current = setInterval(() => {
+      Vibration.vibrate(1000);
+    }, 2000);
+  }, []);
+
+  // 🔇 Stop proximity alarm and vibration
+  const stopProximityAlarm = useCallback(async () => {
+    try {
+      // Stop sound
+      if (soundObjectRef.current) {
+        await soundObjectRef.current.stopAsync();
+        await soundObjectRef.current.unloadAsync();
+        soundObjectRef.current = null;
+        console.log('🔇 Proximity alarm stopped');
+      }
+
+      // Stop vibration
+      if (vibrationIntervalRef.current) {
+        clearInterval(vibrationIntervalRef.current);
+        vibrationIntervalRef.current = null;
+      }
+      Vibration.cancel(); // Cancel any ongoing vibration
+      
+    } catch (error) {
+      console.error('❌ Error stopping alarm:', error);
+    }
+  }, []);
+
+  // 🔊 Play continuous alarm sound (ringing)
+  const playProximityAlarm = useCallback(async () => {
+    try {
+      // Stop any existing sound
+      await stopProximityAlarm();
+
+      // Create alarm sound - using system default notification sound
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' }, // Default alarm sound
+        { 
+          shouldPlay: true,
+          isLooping: true, // Continuous ringing
+          volume: 1.0
+        }
+      );
+      
+      soundObjectRef.current = sound;
+      console.log('🔊 Playing continuous proximity alarm');
+
+      // Start continuous vibration pattern
+      startContinuousVibration();
+      
+    } catch (error) {
+      console.error('❌ Error playing alarm:', error);
+      // Fallback to continuous vibration only
+      startContinuousVibration();
+    }
+  }, [stopProximityAlarm, startContinuousVibration]);
+
+  // 📍 Initialize location tracking and audio
   useEffect(() => {
     const initializeLocationTracking = async () => {
       try {
+        // Configure audio mode for maximum compatibility
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          shouldDuckAndroid: true,
+        });
+        console.log('✅ Audio configured for proximity alerts');
+
         // Subscribe to location updates (for state updates only, not for sending)
         locationUnsubscribeRef.current = locationService.subscribe((location) => {
           setState((prev) => ({ 
@@ -86,13 +169,83 @@ export const DeliveryProvider = ({ children }) => {
         clearInterval(locationIntervalRef.current);
         locationIntervalRef.current = null;
       }
+      // Stop alarm and vibration
+      stopProximityAlarm();
     };
   }, [userId]);
 
+  // 🔔 Proximity Alert Function - Play alarm when near destination
+  const checkProximityAndAlert = useCallback(async (order, currentLocation, orderId) => {
+    try {
+      // Get destination location
+      const destination = order.destinationLocation || order.deliveryLocation || order.deliverLocation || order.customerLocation;
+      
+      if (!destination || !destination.lat || !destination.lng) {
+        return; // No destination available
+      }
+
+      // Calculate distance to destination
+      const distance = locationService.calculateDistance(
+        currentLocation.latitude,
+        currentLocation.longitude,
+        destination.lat,
+        destination.lng
+      );
+
+      const distanceInMeters = distance * 1000; // Convert km to meters
+      const PROXIMITY_THRESHOLD = 200; // 200 meters
+
+      // Check if we're within proximity threshold
+      if (distanceInMeters <= PROXIMITY_THRESHOLD) {
+        // Check if we've already notified for this order
+        if (proximityNotifiedRef.current.has(orderId)) {
+          return; // Already notified
+        }
+
+        // Mark as notified
+        proximityNotifiedRef.current.add(orderId);
+        
+        console.log(`🔔 PROXIMITY ALERT! Within ${Math.round(distanceInMeters)}m of destination for order: ${order.orderCode || orderId}`);
+
+        // Play continuous ringing alarm sound
+        await playProximityAlarm();
+
+        // Show alert dialog with stop alarm on dismiss
+        Alert.alert(
+          "🎯 Approaching Destination!",
+          `You are ${Math.round(distanceInMeters)} meters away from the delivery location.\n\nOrder: ${order.orderCode || orderId}\nCustomer: ${order.userName || 'Customer'}`,
+          [
+            {
+              text: "Got it!",
+              onPress: () => {
+                stopProximityAlarm();
+                console.log('✅ User acknowledged proximity alert');
+              }
+            }
+          ],
+          { 
+            cancelable: false,
+            onDismiss: () => {
+              stopProximityAlarm();
+            }
+          }
+        );
+      } else {
+        // If distance is more than threshold, allow future notifications
+        if (distanceInMeters > PROXIMITY_THRESHOLD * 1.5) {
+          proximityNotifiedRef.current.delete(orderId);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error checking proximity:', error);
+    }
+  }, []);
+
+
   // 📍 Send location updates every 3 seconds when connected
   useEffect(() => {
-    if (!socketRef.current || !socketRef.current.connected || !userId || !state.isLocationTracking) {
-      // Clear interval if not connected or not tracking
+    if (!userId || !state.isLocationTracking) {
+      // Clear interval if not tracking
       if (locationIntervalRef.current) {
         clearInterval(locationIntervalRef.current);
         locationIntervalRef.current = null;
@@ -104,23 +257,200 @@ export const DeliveryProvider = ({ children }) => {
     locationIntervalRef.current = setInterval(() => {
       const currentLocation = locationService.getCurrentLocation();
       if (currentLocation) {
-        socketRef.current.emit('locationUpdate', {
-          userId,
-          location: {
+        // Send to socket server if connected
+        if (socketRef.current && socketRef.current.connected) {
+          socketRef.current.emit('locationUpdate', {
+            userId,
+            location: {
+              userName: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+              userPhone: user?.phone || 'N/A',
+              userDeliveryMethod: user?.deliveryMethod || 'N/A',
+              latitude: currentLocation.latitude,
+              longitude: currentLocation.longitude,
+              accuracy: currentLocation.accuracy,
+              timestamp: currentLocation.timestamp
+            }
+          });
+          console.log('📍 Location sent to server:', currentLocation);
+        }
 
-            userName:user?.firstName + ' ' + user?.lastName,
-            userPhone:user?.phone,
+        // Check if activeOrder is an array (from dashboard) or single object (from state)
+        // Define this early so we can use it in multiple places
+        const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : 
+                             (state.activeOrder ? [state.activeOrder] : []);
 
-            userDeliveryMethod:user?.deliveryMethod,
-            // userDeliveryStatus:user?.deliveryStatus,
-            
+        // ALWAYS send to Firebase - direct delivery guy location tracking
+        const deliveryGuyRef = ref(database, `deliveryGuys/${userId}`);
+        const locationHistoryRef = ref(database, `deliveryGuys/${userId}/locationHistory`);
+        
+        // Update current location for delivery guy
+        const locationData = {
+          currentLocation: {
             latitude: currentLocation.latitude,
             longitude: currentLocation.longitude,
             accuracy: currentLocation.accuracy,
             timestamp: currentLocation.timestamp
-          }
+          },
+          lastLocationUpdate: new Date().toISOString(),
+          deliveryPerson: {
+            id: userId,
+            name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+            phone: user?.phone || 'N/A',
+            deliveryMethod: user?.deliveryMethod || 'N/A'
+          },
+          isOnline: state.isOnline,
+          isTracking: state.isLocationTracking,
+          activeOrderIds: activeOrders.map(o => o._id || o.id || o.orderId || o.orderCode).filter(Boolean),
+          status: activeOrders.length > 0 ? 'Delivering' : 'Available'
+        };
+        
+        // Add to location history
+        const historyEntry = {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          accuracy: currentLocation.accuracy,
+          timestamp: currentLocation.timestamp,
+          status: state.activeOrder?.status || 'Available',
+          recordedAt: new Date().toISOString(),
+          activeOrderId: state.activeOrder?.orderId || null
+        };
+        
+        // Update delivery guy data and add to history
+        Promise.all([
+          update(deliveryGuyRef, locationData),
+          push(locationHistoryRef, historyEntry)
+        ]).catch(error => {
+          console.error('❌ Error updating delivery guy location in Firebase:', error);
         });
-        console.log('📍 Location sent to server:', currentLocation);
+        
+        console.log('🔥 Delivery guy location sent to Firebase:', userId);
+        
+        console.log('🔍 Active Orders Check:', {
+          hasActiveOrders: activeOrders.length > 0,
+          orderCount: activeOrders.length,
+          orderIds: activeOrders.map(o => o.orderId || o.orderCode)
+        });
+
+        // SEND TO ORDER-SPECIFIC FIREBASE PATH (for customer tracking)
+        // Handle both single order and multiple orders (dashboard display)
+        if (activeOrders.length > 0) {
+          console.log(`📦 Sending location to ${activeOrders.length} active order(s)`);
+          
+          // Send location for each active order
+          const locationUpdatePromises = activeOrders.map(async (order) => {
+            // Log available order fields to debug
+            console.log('🔍 Order fields available:', {
+              _id: order._id,
+              id: order.id,
+              orderId: order.orderId,
+              orderCode: order.orderCode,
+              allKeys: Object.keys(order)
+            });
+            
+            // Priority: Use MongoDB _id first (for customer app compatibility)
+            // The API might return the MongoDB ID in different fields
+            const mongoId = order._id || order.id;
+            const orderId = mongoId || order.orderId || order.orderCode;
+            
+            if (!orderId) {
+              console.warn('⚠️ Order missing _id, id, orderId and orderCode:', order);
+              return;
+            }
+            
+            console.log('📍 Using Firebase path for order:', orderId);
+            console.log('📦 Order Code:', order.orderCode || 'N/A');
+            
+            const orderRef = ref(database, `deliveryOrders/${orderId}`);
+            const orderLocationHistoryRef = ref(database, `deliveryOrders/${orderId}/locationHistory`);
+            
+            // Update current location for specific order
+            // Only include fields that are defined (Firebase doesn't accept undefined)
+            const orderLocationData = {
+              orderId: orderId,
+              orderCode: order.orderCode || `ORD-${orderId.slice(-6)}`,
+              deliveryLocation: {
+                latitude: currentLocation.latitude,
+                longitude: currentLocation.longitude,
+                accuracy: currentLocation.accuracy,
+                timestamp: currentLocation.timestamp
+              },
+              lastLocationUpdate: new Date().toISOString(),
+              deliveryPerson: {
+                id: userId,
+                name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+                phone: user?.phone || 'N/A',
+                deliveryMethod: user?.deliveryMethod || 'N/A'
+              },
+              status: order.orderStatus || order.status || 'Delivering',
+              orderStatus: order.orderStatus || 'Delivering',
+              trackingEnabled: true,
+              deliveryFee: order.deliveryFee || 0,
+              tip: order.tip || 0,
+            };
+            
+            // Add optional fields only if they exist
+            if (order.restaurantName) {
+              orderLocationData.restaurantName = order.restaurantName;
+            }
+            if (order.restaurantLocation) {
+              orderLocationData.restaurantLocation = order.restaurantLocation;
+            }
+            if (order.destinationLocation) {
+              orderLocationData.customerLocation = order.destinationLocation;
+            } else if (order.deliveryLocation) {
+              orderLocationData.customerLocation = order.deliveryLocation;
+            } else if (order.deliverLocation) {
+              orderLocationData.customerLocation = order.deliverLocation;
+            }
+            if (order.pickUpVerificationCode) {
+              orderLocationData.pickUpVerificationCode = order.pickUpVerificationCode;
+            }
+            if (order.userName) {
+              orderLocationData.customerName = order.userName;
+            }
+            if (order.phone) {
+              orderLocationData.customerPhone = order.phone;
+            }
+            if (order.description) {
+              orderLocationData.description = order.description;
+            }
+            
+            // Add to order-specific location history
+            const orderHistoryEntry = {
+              latitude: currentLocation.latitude,
+              longitude: currentLocation.longitude,
+              accuracy: currentLocation.accuracy,
+              timestamp: currentLocation.timestamp,
+              status: order.orderStatus || order.status || 'Delivering',
+              recordedAt: new Date().toISOString()
+            };
+            
+            // Update order data and add to history
+            try {
+              await Promise.all([
+                update(orderRef, orderLocationData),
+                push(orderLocationHistoryRef, orderHistoryEntry)
+              ]);
+              console.log('✅ Order location updated successfully:', orderId);
+              console.log('📍 Firebase Path: deliveryOrders/' + orderId);
+              
+              // Check proximity to destination and trigger alarm if close
+              await checkProximityAndAlert(order, currentLocation, orderId);
+            } catch (error) {
+              console.error('❌ Error updating order location:', orderId, error.message);
+            }
+          });
+          
+          // Wait for all updates to complete
+          Promise.all(locationUpdatePromises).then(() => {
+            console.log(`🔥 Location sent to Firebase for ${activeOrders.length} order(s)`);
+          }).catch(error => {
+            console.error('❌ Error in batch location update:', error);
+          });
+          
+        } else {
+          console.log('⚠️ No active orders - order tracking not sent');
+        }
       }
     }, 3000); // Every 3 seconds
 
@@ -131,7 +461,7 @@ export const DeliveryProvider = ({ children }) => {
         locationIntervalRef.current = null;
       }
     };
-  }, [socketRef.current?.connected, userId, state.isLocationTracking]);
+  }, [userId, state.isLocationTracking, state.isOnline, state.activeOrder]);
 
   // 🔌 Connect to socket server with authentication
   useEffect(() => {
@@ -388,6 +718,7 @@ const fetchActiveOrder = useCallback(
 
     return new Promise((resolve) => {
     try {
+      
         console.log("📦 Accepting order via socket:", orderId);
         console.log('Delivery Person ID:', deliveryPersonId);
         console.log('Socket connected:', socketRef.current.connected);
@@ -418,22 +749,24 @@ const fetchActiveOrder = useCallback(
               status: response.data?.status || 'Accepted',
         };
 
+        const activeOrderData = {
+          orderId,
+          deliveryPersonId,
+          orderCode: response.data?.orderCode || `ORD-${orderId.slice(-6)}`,
+          deliveryVerificationCode: response.data?.pickUpVerification || 'N/A',
+          restaurantLocation: response.data?.restaurantLocation,
+          deliveryLocation: response.data?.deliverLocation,
+          deliveryFee: response.data?.deliveryFee || 0,
+          tip: response.data?.tip || 0,
+          distanceKm: response.data?.distanceKm || 0,
+          description: response.data?.description || '',
+          status: response.data?.status || 'Accepted',
+        };
+
         setState((prev) => ({
           ...prev,
           acceptedOrder: acceptedOrderData,
-          activeOrder: {
-            orderId,
-            deliveryPersonId,
-                orderCode: response.data?.orderCode || `ORD-${orderId.slice(-6)}`,
-                deliveryVerificationCode: response.data?.pickUpVerification || 'N/A',
-                restaurantLocation: response.data?.restaurantLocation,
-                deliveryLocation: response.data?.deliverLocation,
-                deliveryFee: response.data?.deliveryFee || 0,
-                tip: response.data?.tip || 0,
-                distanceKm: response.data?.distanceKm || 0,
-                description: response.data?.description || '',
-                status: response.data?.status || 'Accepted',
-          },
+          activeOrder: activeOrderData,
           availableOrders: prev.availableOrders.filter(
             (o) => o.orderId !== orderId
           ),
@@ -441,6 +774,11 @@ const fetchActiveOrder = useCallback(
           showOrderModal: false,
           pendingOrderPopup: null,
         }));
+
+        // Initialize Firebase tracking for the accepted order
+        initializeOrderTracking(activeOrderData).catch(error => {
+          console.error('❌ Error initializing Firebase tracking:', error);
+        });
       
             // Calculate total earnings
             const totalEarnings = (response.data?.deliveryFee || 0) + (response.data?.tip || 0);
@@ -609,6 +947,12 @@ const fetchActiveOrder = useCallback(
         locationIntervalRef.current = null;
       }
       
+      // Clear dynamic location interval
+      if (locationUpdateIntervalRef.current) {
+        clearInterval(locationUpdateIntervalRef.current);
+        locationUpdateIntervalRef.current = null;
+      }
+      
       // Clear stored order data
       // persistent storage for orders removed; nothing to clear
       
@@ -673,7 +1017,7 @@ const fetchActiveOrder = useCallback(
     try {
       setState((prev) => ({ ...prev, isLoadingOrders: true, ordersError: null }));
       
-      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/orders/available-cooked', {
+      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/orders/cooked', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -919,6 +1263,12 @@ const fetchDeliveryHistory = useCallback(async () => {
       const data = await response.json();
   
       if (response.ok && data.status === "success") {
+        // Update Firebase status to "Delivered"
+        await updateDeliveryStatus(orderId, "Delivered", {
+          deliveredAt: new Date().toISOString(),
+          verificationCode: verificationCode
+        });
+        
         setState((prev) => ({ ...prev, activeOrder: null, acceptedOrder: null }));
         
         Alert.alert("🎉 Delivery Verified!", data.message);
@@ -1055,6 +1405,283 @@ const fetchDeliveryHistory = useCallback(async () => {
     );
   }, []);
 
+  // 📍 Update delivery status in Firebase
+  const updateDeliveryStatus = useCallback(async (orderId, status, additionalData = {}) => {
+    if (!state.activeOrder || state.activeOrder.orderId !== orderId) {
+      console.warn('No active order found for status update');
+      return false;
+    }
+
+    try {
+      const orderRef = ref(database, `deliveryOrders/${orderId}`);
+      const statusUpdate = {
+        status: status,
+        statusUpdatedAt: new Date().toISOString(),
+        ...additionalData
+      };
+
+      await update(orderRef, statusUpdate);
+      
+      // Update local state
+      setState((prev) => ({
+        ...prev,
+        activeOrder: {
+          ...prev.activeOrder,
+          status: status,
+          ...additionalData
+        }
+      }));
+
+      // Update location tracking interval based on new status
+      updateLocationTrackingInterval(status);
+
+      console.log(`✅ Delivery status updated to: ${status}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error updating delivery status:', error);
+      return false;
+    }
+  }, [state.activeOrder]);
+
+  // 📍 Send location update to Firebase (can be called manually)
+  const sendLocationUpdate = useCallback(async (orderId) => {
+    if (!orderId) {
+      console.warn('Order ID required for location update');
+      return false;
+    }
+
+    const currentLocation = locationService.getCurrentLocation();
+    if (!currentLocation) {
+      console.warn('No current location available');
+      return false;
+    }
+
+    try {
+      const orderRef = ref(database, `deliveryOrders/${orderId}`);
+      const locationData = {
+        deliveryLocation: {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          accuracy: currentLocation.accuracy,
+          timestamp: currentLocation.timestamp
+        },
+        lastLocationUpdate: new Date().toISOString(),
+        deliveryPerson: {
+          id: userId,
+          name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+          phone: user?.phone || 'N/A',
+          deliveryMethod: user?.deliveryMethod || 'N/A'
+        }
+      };
+
+      await update(orderRef, locationData);
+      console.log('📍 Manual location update sent to Firebase');
+      return true;
+    } catch (error) {
+      console.error('❌ Error sending location update:', error);
+      return false;
+    }
+  }, [userId, user]);
+
+  // 📍 Initialize order tracking in Firebase when order is accepted
+  const initializeOrderTracking = useCallback(async (orderData) => {
+    if (!orderData || !orderData.orderId) {
+      console.error('❌ Invalid order data for tracking initialization:', orderData);
+      return false;
+    }
+
+    console.log('🚀 Initializing Firebase tracking for order:', orderData.orderId);
+    console.log('📦 Order Data:', {
+      orderId: orderData.orderId,
+      orderCode: orderData.orderCode,
+      status: orderData.status,
+      restaurantLocation: orderData.restaurantLocation,
+      deliveryLocation: orderData.deliveryLocation
+    });
+
+    try {
+      const orderRef = ref(database, `deliveryOrders/${orderData.orderId}`);
+      
+      // Get current location for initial tracking
+      const currentLocation = locationService.getCurrentLocation();
+      
+      const initialData = {
+        orderId: orderData.orderId,
+        orderCode: orderData.orderCode || `ORD-${orderData.orderId.slice(-6)}`,
+        status: orderData.status || 'Accepted',
+        acceptedAt: new Date().toISOString(),
+        deliveryPerson: {
+          id: userId,
+          name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+          phone: user?.phone || 'N/A',
+          deliveryMethod: user?.deliveryMethod || 'N/A'
+        },
+        restaurantLocation: orderData.restaurantLocation,
+        customerLocation: orderData.deliveryLocation, // Customer destination
+        deliveryFee: orderData.deliveryFee || 0,
+        tip: orderData.tip || 0,
+        distanceKm: orderData.distanceKm || 0,
+        description: orderData.description || '',
+        trackingEnabled: true,
+        lastLocationUpdate: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        // Add initial delivery location if available
+        ...(currentLocation && {
+          deliveryLocation: {
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude,
+            accuracy: currentLocation.accuracy,
+            timestamp: currentLocation.timestamp
+          }
+        })
+      };
+
+      await update(orderRef, initialData);
+      console.log('✅ Order tracking initialized successfully in Firebase');
+      console.log('📍 Firebase Path: deliveryOrders/' + orderData.orderId);
+      console.log('🔥 Customer can now track this order in real-time');
+      return true;
+    } catch (error) {
+      console.error('❌ Error initializing order tracking:', error);
+      console.error('❌ Error details:', error.message);
+      return false;
+    }
+  }, [userId, user]);
+
+  // 📍 Send delivery guy location directly to Firebase (manual trigger)
+  const sendDeliveryGuyLocationToFirebase = useCallback(async () => {
+    if (!userId) {
+      console.warn('User ID required for location update');
+      return false;
+    }
+
+    const currentLocation = locationService.getCurrentLocation();
+    if (!currentLocation) {
+      console.warn('No current location available');
+      return false;
+    }
+
+    try {
+      const deliveryGuyRef = ref(database, `deliveryGuys/${userId}`);
+      const locationHistoryRef = ref(database, `deliveryGuys/${userId}/locationHistory`);
+      
+      const locationData = {
+        currentLocation: {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          accuracy: currentLocation.accuracy,
+          timestamp: currentLocation.timestamp
+        },
+        lastLocationUpdate: new Date().toISOString(),
+        deliveryPerson: {
+          id: userId,
+          name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+          phone: user?.phone || 'N/A',
+          deliveryMethod: user?.deliveryMethod || 'N/A'
+        },
+        isOnline: state.isOnline,
+        isTracking: state.isLocationTracking,
+        activeOrderId: state.activeOrder?.orderId || null,
+        status: state.activeOrder?.status || 'Available'
+      };
+      
+      const historyEntry = {
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        accuracy: currentLocation.accuracy,
+        timestamp: currentLocation.timestamp,
+        status: state.activeOrder?.status || 'Available',
+        recordedAt: new Date().toISOString(),
+        activeOrderId: state.activeOrder?.orderId || null
+      };
+      
+      await Promise.all([
+        update(deliveryGuyRef, locationData),
+        push(locationHistoryRef, historyEntry)
+      ]);
+      
+      console.log('🔥 Manual delivery guy location sent to Firebase');
+      return true;
+    } catch (error) {
+      console.error('❌ Error sending delivery guy location:', error);
+      return false;
+    }
+  }, [userId, user, state.isOnline, state.isLocationTracking, state.activeOrder]);
+
+  // 📍 Get optimal location update interval based on delivery status
+  const getLocationUpdateInterval = useCallback((status) => {
+    switch (status) {
+      case 'Accepted':
+        return 10000; // 10 seconds - driver heading to restaurant
+      case 'PickedUp':
+        return 5000;  // 5 seconds - driver heading to customer
+      case 'InTransit':
+        return 3000;  // 3 seconds - actively delivering
+      case 'Delivered':
+        return 0;     // Stop updates
+      default:
+        return 10000; // Default 10 seconds
+    }
+  }, []);
+
+  // 📍 Update location tracking interval based on status
+  const updateLocationTrackingInterval = useCallback((status) => {
+    const interval = getLocationUpdateInterval(status);
+    
+    // Clear existing interval
+    if (locationUpdateIntervalRef.current) {
+      clearInterval(locationUpdateIntervalRef.current);
+      locationUpdateIntervalRef.current = null;
+    }
+    
+    // If interval is 0, stop tracking
+    if (interval === 0) {
+      console.log('📍 Location tracking stopped - order delivered');
+      return;
+    }
+    
+    // Set new interval
+    locationUpdateIntervalRef.current = setInterval(() => {
+      const currentLocation = locationService.getCurrentLocation();
+      if (currentLocation && state.activeOrder) {
+        // Send location update
+        const orderRef = ref(database, `deliveryOrders/${state.activeOrder.orderId}`);
+        const locationHistoryRef = ref(database, `deliveryOrders/${state.activeOrder.orderId}/locationHistory`);
+        
+        const locationData = {
+          deliveryLocation: {
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude,
+            accuracy: currentLocation.accuracy,
+            timestamp: currentLocation.timestamp
+          },
+          lastLocationUpdate: new Date().toISOString(),
+          status: status
+        };
+        
+        const historyEntry = {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          accuracy: currentLocation.accuracy,
+          timestamp: currentLocation.timestamp,
+          status: status,
+          recordedAt: new Date().toISOString()
+        };
+        
+        Promise.all([
+          update(orderRef, locationData),
+          push(locationHistoryRef, historyEntry)
+        ]).catch(error => {
+          console.error('❌ Error updating location:', error);
+        });
+        
+        console.log(`📍 Location update sent (${status}) - Interval: ${interval}ms`);
+      }
+    }, interval);
+    
+    console.log(`📍 Location tracking interval updated to ${interval}ms for status: ${status}`);
+  }, [state.activeOrder, getLocationUpdateInterval]);
+
   return (
     <DeliveryContext.Provider
       value={{
@@ -1085,6 +1712,13 @@ const fetchDeliveryHistory = useCallback(async () => {
         getCurrentLocation,
         getCurrentLocationAsync,
         calculateDistanceToLocation,
+        // Firebase tracking functions
+        updateDeliveryStatus,
+        sendLocationUpdate,
+        initializeOrderTracking,
+        sendDeliveryGuyLocationToFirebase,
+        getLocationUpdateInterval,
+        updateLocationTrackingInterval,
         // Cleanup functions
         clearDeliveryData,
       }}
