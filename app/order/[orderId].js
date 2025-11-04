@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -45,18 +46,17 @@ export default function OrderDetailsScreen() {
     return null;
   }, [activeOrder]);
 
+
+console.log(order)
   const handleVerifyDelivery = async () => {
     if (!verificationCode.trim()) {
       Alert.alert('Error', 'Please enter the verification code');
       return;
     }
-
     setIsVerifying(true);
     setVerificationError(''); // Clear previous errors
     try {
-      console.log('🔍 Order ID:');
-      console.log('🔍 Verifying delivery for order:', orderId, 'with code:', verificationCode.trim());
-      const result = await verifyDelivery(orderId, verificationCode.trim());
+       const result = await verifyDelivery(order.id, verificationCode.trim());
       if (result.success) {
         Alert.alert('Success', 'Delivery verified successfully!');
         setShowVerificationModal(false);
@@ -116,11 +116,12 @@ export default function OrderDetailsScreen() {
   };
 
   const handleNavigateToRestaurant = () => {
-    if (order?.restaurantLocation?.lat && order?.restaurantLocation?.lng) {
-      const lat = order.restaurantLocation.lat; 
-      const lng = order.restaurantLocation.lng;
+       console.log('🔍 Navigating to restaurant:',order);
+    if (order.restaurantLocation.coordinates[0] && order.restaurantLocation.coordinates[1]) {
+      const lat = order.restaurantLocation.coordinates[0]; 
+      const lng = order.restaurantLocation.coordinates[1];
 
-      console.log('🔍 Navigating to restaurant:', lat, lng);
+   
       
       // Navigate to map screen with restaurant location
       const restaurantLocation = JSON.stringify({
@@ -144,13 +145,15 @@ export default function OrderDetailsScreen() {
   };
 
   const handleNavigateToDelivery = () => {
-    if (order?.destinationLocation?.lat && order?.destinationLocation?.lng) {
-      console.log('🔍 Navigating to delivery location:', order.destinationLocation.lat, order.destinationLocation.lng);
-      
+
+    console.log('🔍 Navigating to delivery location');
+    console.log('🔍 Delivery location data:', order?.destinationLocation.coordinates);
+    if (order?.destinationLocation.coordinates) {
+    
       // Navigate to map screen with delivery location
       const deliveryLocation = JSON.stringify({
-        lat: order.destinationLocation.lat,
-        lng: order.destinationLocation.lng,
+        lat: order?.destinationLocation.coordinates[0],
+        lng: order?.destinationLocation.coordinates[1],
         name: 'Delivery Location',
         address: order.destinationLocation.address || 'Delivery Address'
       });
@@ -164,6 +167,32 @@ export default function OrderDetailsScreen() {
     } else {
       Alert.alert('Error', 'Delivery location not available');
     }
+  };
+
+  const handleCallCustomer = () => {
+    const phoneNumber = order?.phone || order?.userPhone || order?.customer?.phone;
+    
+    if (!phoneNumber || phoneNumber === 'N/A') {
+      Alert.alert('Error', 'Customer phone number not available');
+      return;
+    }
+
+    // Remove any non-numeric characters except + 
+    const cleanedNumber = phoneNumber.replace(/[^\d+]/g, '');
+    const phoneUrl = `tel:${cleanedNumber}`;
+
+    Linking.canOpenURL(phoneUrl)
+      .then((supported) => {
+        if (supported) {
+          return Linking.openURL(phoneUrl);
+        } else {
+          Alert.alert('Error', 'Phone call not supported on this device');
+        }
+      })
+      .catch((error) => {
+        console.error('Error opening phone app:', error);
+        Alert.alert('Error', 'Failed to open phone app');
+      });
   };
 
   const formatTime = (dateString) => {
@@ -360,6 +389,14 @@ export default function OrderDetailsScreen() {
               <Text style={styles.infoLabel}>Name:</Text>
               <Text style={styles.infoValue}>{order.userName || order.customer?.name || 'Customer'}</Text>
             </View>
+            
+            <TouchableOpacity 
+              style={styles.callButton}
+              onPress={handleCallCustomer}
+            >
+              <Phone color="#FFFFFF" size={18} />
+              <Text style={styles.callButtonText}>Call Customer</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -918,5 +955,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  callButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  callButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginLeft: 8,
   },
 });

@@ -4,43 +4,47 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   RefreshControl,
+  FlatList,
+  TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { 
-  Clock, 
-  DollarSign, 
-  CheckCircle, 
-  TrendingUp,
-  Calendar,
-  Filter,
-} from 'lucide-react-native';
-
+import { Calendar, Filter, TrendingUp, DollarSign, Package, Award } from 'lucide-react-native';
 import { useAuth } from '../../providers/auth-provider';
 
+const { width } = Dimensions.get('window');
+
 export default function HistoryScreen() {
-   const { token } = useAuth();
-  
+  const { token } = useAuth();
   const [state, setState] = useState({
-    deliveryHistory: [],
-    isLoadingHistory: false,
+    isLoadingHistory: true,
     historyError: null,
-    totalCount: 0,
+    deliveryHistory: [],
+    originalHistory: [], // Store original data for filtering
   });
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState('all'); // all, today, week, month
-  const [sortBy, setSortBy] = useState('date'); // date, earnings
-  
+  const [filters, setFilters] = useState({
+    dateRange: 'all', // 'today', 'week', 'month', 'all'
+    sortBy: 'newest', // 'newest', 'oldest', 'highestEarning'
+  });
+  const [analytics, setAnalytics] = useState({
+    totalEarnings: 0,
+    tipEarnings: 0,
+    totalDeliveries: 0,
+    averageEarning: 0,
+    highestEarning: 0,
+  });
 
+  // 📊 Fetch delivery person order history
   const fetchDeliveryHistory = useCallback(async () => {
-    console.log("📊 Fetching delivery history from API...");
+    console.log("Fetching completed delivery history...");
 
     if (!token) {
-      console.error("❌ No authentication token available");
+      console.error("No authentication token available");
       setState((prev) => ({
         ...prev,
         isLoadingHistory: false,
@@ -68,44 +72,141 @@ export default function HistoryScreen() {
       );
 
       const data = await response.json();
-      console.log("🔍 Delivery history raw data:", data);
 
       if (!response.ok || data?.status !== "success") {
-        throw new Error(data?.message || "Failed to fetch delivery history");
+        throw new Error(data?.message || `HTTP ${response.status}: Failed to fetch orders`);
       }
 
-      if (!Array.isArray(data.data)) {
-        throw new Error("Invalid data format received from server");
+      if (!data.data || !Array.isArray(data.data) || typeof data.count !== "number") {
+        throw new Error("Invalid response format: missing data array or count");
       }
+
+      const normalizedHistory = data.data
+        .map((order) => {
+          if (!order._id && !order.id) {
+            console.warn("Skipping invalid order:", order);
+            return null;
+          }
+
+          return {
+            id: order._id || order.id,
+            restaurantName: order.restaurantName || "Unknown Restaurant",
+            deliveryFee: order.deliveryFee ?? 0,
+            tip: order.tip ?? 0,
+            totalEarnings: (order.deliveryFee ?? 0) + (order.tip ?? 0),
+            orderStatus: order.orderStatus || "",
+            orderCode: order.orderCode || "",
+            updatedAt: order.updatedAt ? new Date(order.updatedAt).toISOString() : null,
+            createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null,
+          };
+        })
+        .filter(Boolean); // Remove any nulls
 
       setState((prev) => ({
         ...prev,
         isLoadingHistory: false,
-        deliveryHistory: data.data.map(order => ({
-          restaurantName: order.restaurantName,
-          deliveryFee: order.deliveryFee,
-          tip: order.tip,
-          description: order.description,
-          orderStatus: order.orderStatus,
-          updatedAt: new Date(order.updatedAt).toISOString(),
-        })),
-        historyError: null,
-        totalCount: data.count,
+        deliveryHistory: normalizedHistory,
+        originalHistory: normalizedHistory, // Store original for filtering
       }));
+
+      console.log(`✅ Loaded ${normalizedHistory.length} completed deliveries`);
 
     } catch (error) {
       console.error("❌ Error fetching delivery history:", error);
       setState((prev) => ({
         ...prev,
         isLoadingHistory: false,
-        historyError: error.message || "Network error. Please check your connection.",
+        historyError:
+          error.message.includes("Failed to fetch")
+            ? "Unable to connect to server. Please try again later."
+            : error.message || "An unexpected error occurred.",
       }));
     }
   }, [token]);
 
+  // Calculate analytics from delivery history
+  const calculateAnalytics = useCallback((history) => {
+    if (!history.length) {
+      setAnalytics({
+        totalEarnings: 0,
+        tipEarnings: 0,
+        totalDeliveries: 0,
+        averageEarning: 0,
+        highestEarning: 0,
+      });
+      return;
+    }
+
+    const totalEarnings = history.reduce((sum, order) => sum + order.totalEarnings, 0);
+    const tipEarnings = history.reduce((sum, order) => sum + order.tip, 0);
+    const totalDeliveries = history.length;
+    const averageEarning = totalEarnings / totalDeliveries;
+    const highestEarning = Math.max(...history.map(order => order.totalEarnings));
+
+    setAnalytics({
+      totalEarnings,
+      tipEarnings,
+      totalDeliveries,
+      averageEarning,
+      highestEarning,
+    });
+  }, []);
+
+  // Apply filters to data
+  const applyFilters = useCallback(() => {
+    let filteredData = [...state.originalHistory];
+
+    // Date range filtering
+    const now = new Date();
+    switch (filters.dateRange) {
+      case 'today':
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        filteredData = filteredData.filter(order => 
+          order.updatedAt && new Date(order.updatedAt) >= today
+        );
+        break;
+      case 'week':
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        filteredData = filteredData.filter(order => 
+          order.updatedAt && new Date(order.updatedAt) >= weekAgo
+        );
+        break;
+      case 'month':
+        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        filteredData = filteredData.filter(order => 
+          order.updatedAt && new Date(order.updatedAt) >= monthAgo
+        );
+        break;
+      // 'all' shows everything
+    }
+
+    // Sorting
+    switch (filters.sortBy) {
+      case 'newest':
+        filteredData.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+        break;
+      case 'oldest':
+        filteredData.sort((a, b) => new Date(a.updatedAt) - new Date(b.updatedAt));
+        break;
+      case 'highestEarning':
+        filteredData.sort((a, b) => b.totalEarnings - a.totalEarnings);
+        break;
+    }
+
+    setState(prev => ({ ...prev, deliveryHistory: filteredData }));
+    calculateAnalytics(filteredData);
+  }, [filters, state.originalHistory, calculateAnalytics]);
+
   useEffect(() => {
     fetchDeliveryHistory();
   }, [fetchDeliveryHistory]);
+
+  useEffect(() => {
+    if (state.originalHistory.length > 0) {
+      applyFilters();
+    }
+  }, [filters, state.originalHistory.length, applyFilters]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -113,143 +214,90 @@ export default function HistoryScreen() {
     setRefreshing(false);
   };
 
-  const filteredOrders = state.deliveryHistory.filter(order => {
-    if (!order.updatedAt) return false;
-    const orderDate = new Date(order.updatedAt);
-    const now = new Date();
-
-    switch (selectedPeriod) {
-      case 'today':
-        return orderDate.toDateString() === now.toDateString();
-      case 'week':
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        return orderDate >= weekAgo;
-      case 'month':
-        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        return orderDate >= monthAgo;
-      default:
-        return true;
-    }
-  }).sort((a, b) => {
-    switch (sortBy) {
-      case 'earnings':
-        return (b.deliveryFee + b.tip) - (a.deliveryFee + a.tip);
-      case 'date':
-      default:
-        return new Date(b.updatedAt) - new Date(a.updatedAt);
-    }
-  });
+  const formatCurrency = (amount) => {
+    return `$${amount.toFixed(2)}`;
+  };
 
   const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    } catch (error) {
-      console.error('Error formatting date:', error);
-      return 'Invalid Date';
-    }
+    if (!dateString) return 'Unknown date';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
-  const formatTime = (dateString) => {
-    if (!dateString) return 'N/A';
-    try {
-      return new Date(dateString).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
-    } catch (error) {
-      console.error('Error formatting time:', error);
-      return 'Invalid Time';
-    }
-  };
+  const AnalyticsCard = ({ title, value, subtitle, icon, color }) => (
+    <LinearGradient
+      colors={[color, `${color}DD`]}
+      style={styles.analyticsCard}
+    >
+      <View style={styles.analyticsHeader}>
+        {icon}
+        <Text style={styles.analyticsTitle}>{title}</Text>
+      </View>
+      <Text style={styles.analyticsValue}>{value}</Text>
+      {subtitle && <Text style={styles.analyticsSubtitle}>{subtitle}</Text>}
+    </LinearGradient>
+  );
 
-  const getTotalEarnings = () => {
-    return filteredOrders.reduce((sum, order) => sum + (order.deliveryFee || 0) + (order.tip || 0), 0);
-  };
-
-  const getTotalDeliveryEarnings = () => {
-    return filteredOrders.reduce((sum, order) => sum + (order.deliveryFee || 0), 0);
-  };
-
-  const getTotalTipEarnings = () => {
-    return filteredOrders.reduce((sum, order) => sum + (order.tip || 0), 0);
-  };
-
-  const getTotalDeliveries = () => {
-    return filteredOrders.length;
-  };
-
-  const getStatistics = () => {
-    if (filteredOrders.length === 0) return null;
-
-    const totalEarnings = getTotalEarnings();
-    const totalDeliveries = getTotalDeliveries();
-    const avgEarningsPerDelivery = totalEarnings / totalDeliveries;
-    const tipPercentage = getTotalDeliveryEarnings() > 0 
-      ? (getTotalTipEarnings() / getTotalDeliveryEarnings()) * 100 
-      : 0;
-
-    return {
-      totalEarnings,
-      totalDeliveries,
-      avgEarningsPerDelivery,
-      tipPercentage,
-    };
-  };
-
-  const showFilterOptions = () => {
-    Alert.alert(
-      'Sort Options',
-      'Choose how to sort your delivery history:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Sort by Date (Newest First)', onPress: () => setSortBy('date') },
-        { text: 'Sort by Earnings (Highest First)', onPress: () => setSortBy('earnings') },
-      ]
-    );
-  };
-
-  const showPeriodOptions = () => {
-    Alert.alert(
-      'Time Period',
-      'Choose the time period to view:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'All Time', onPress: () => setSelectedPeriod('all') },
-        { text: 'Today', onPress: () => setSelectedPeriod('today') },
-        { text: 'This Week', onPress: () => setSelectedPeriod('week') },
-        { text: 'This Month', onPress: () => setSelectedPeriod('month') },
-      ]
-    );
-  };
+  const OrderItem = ({ item }) => (
+    <View style={styles.orderCard}>
+      <View style={styles.orderHeader}>
+        <Text style={styles.restaurantName}>{item.restaurantName}</Text>
+        <Text style={styles.orderCode}>{item.orderCode}</Text>
+      </View>
+      
+      <View style={styles.orderDetails}>
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Delivery Fee:</Text>
+          <Text style={styles.detailValue}>{formatCurrency(item.deliveryFee)}</Text>
+        </View>
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Tip:</Text>
+          <Text style={[styles.detailValue, styles.tipValue]}>
+            +{formatCurrency(item.tip)}
+          </Text>
+        </View>
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Total:</Text>
+          <Text style={[styles.detailValue, styles.totalValue]}>
+            {formatCurrency(item.totalEarnings)}
+          </Text>
+        </View>
+      </View>
+      
+      <View style={styles.orderFooter}>
+        <Text style={styles.dateText}>{formatDate(item.updatedAt)}</Text>
+        <View style={[styles.statusBadge, styles.completedBadge]}>
+          <Text style={styles.statusText}>{item.orderStatus}</Text>
+        </View>
+      </View>
+    </View>
+  );
 
   if (state.isLoadingHistory && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1E40AF" />
+          <ActivityIndicator size="large" color="#007AFF" />
           <Text style={styles.loadingText}>Loading delivery history...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (state.historyError) {
+  if (state.historyError && state.deliveryHistory.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
           <Text style={styles.errorTitle}>Unable to Load History</Text>
           <Text style={styles.errorMessage}>{state.historyError}</Text>
-          <TouchableOpacity 
-            style={styles.retryButton}
-            onPress={handleRefresh}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchDeliveryHistory}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -258,141 +306,148 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Delivery History</Text>
-          <Text style={styles.subtitle}>
-            {selectedPeriod === 'all' ? 'All Deliveries' : 
-             selectedPeriod === 'today' ? 'Today\'s Deliveries' :
-             selectedPeriod === 'week' ? 'This Week\'s Deliveries' :
-             'This Month\'s Deliveries'}
-          </Text>
-        </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={showPeriodOptions}
-          >
-            <Calendar color="#1E40AF" size={20} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.headerButton}
-            onPress={showFilterOptions}
-          >
-            <Filter color="#1E40AF" size={20} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <LinearGradient
+        colors={['#f7f7f7ff', '#ffffffff']}
+        style={styles.header}
+      >
+        
+      </LinearGradient>
 
-      {/* Statistics Section */}
-      {getStatistics() && (
-        <View style={styles.statsContainer}>
-          <Text style={styles.statsTitle}>📊 Grand Total Statistics</Text>
-          <View style={styles.statsGrid}>
-            <LinearGradient
-              colors={['#10B981', '#059669']}
-              style={styles.statCard}
-            >
-              <DollarSign color="#FFFFFF" size={24} />
-              <Text style={styles.statNumber}>ETB {getStatistics().totalEarnings.toFixed(2)}</Text>
-              <Text style={styles.statLabel}>Total Earnings</Text>
-            </LinearGradient>
-            <LinearGradient
-              colors={['#F59E0B', '#D97706']}
-              style={styles.statCard}
-            >
-              <CheckCircle color="#FFFFFF" size={24} />
-              <Text style={styles.statNumber}>{getStatistics().totalDeliveries}</Text>
-              <Text style={styles.statLabel}>Total Deliveries</Text>
-            </LinearGradient>
-            <LinearGradient
-              colors={['#3B82F6', '#1D4ED8']}
-              style={styles.statCard}
-            >
-              <TrendingUp color="#FFFFFF" size={24} />
-              <Text style={styles.statNumber}>ETB {getStatistics().avgEarningsPerDelivery.toFixed(2)}</Text>
-              <Text style={styles.statLabel}>Avg. Earnings/Delivery</Text>
-            </LinearGradient>
-            <LinearGradient
-              colors={['#8B5CF6', '#6D28D9']}
-              style={styles.statCard}
-            >
-              <TrendingUp color="#FFFFFF" size={24} />
-              <Text style={styles.statNumber}>{getStatistics().tipPercentage.toFixed(1)}%</Text>
-              <Text style={styles.statLabel}>Tip Percentage</Text>
-            </LinearGradient>
-          </View>
-        </View>
-      )}
-
-      {/* Orders List */}
-      <ScrollView 
-        style={styles.ordersList}
+      <ScrollView
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={['#1E40AF']}
-            tintColor="#1E40AF"
+            colors={['#007AFF']}
+            tintColor="#007AFF"
           />
         }
         showsVerticalScrollIndicator={false}
       >
-        {filteredOrders.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <CheckCircle color="#6B7280" size={48} />
-            <Text style={styles.emptyTitle}>No Deliveries Found</Text>
-            <Text style={styles.emptyMessage}>
-              {selectedPeriod === 'all' 
-                ? "You haven't completed any deliveries yet."
-                : `No deliveries found for ${selectedPeriod}.`}
+        {/* Analytics Section */}
+        <View style={styles.analyticsSection}>
+          <Text style={styles.sectionTitle}>Performance Analytics</Text>
+          <View style={styles.analyticsGrid}>
+            <AnalyticsCard
+              title="Total Earnings"
+              value={formatCurrency(analytics.totalEarnings)}
+              icon={<DollarSign size={16} color="#FFF" />}
+              color="#10B981"
+            />
+            <AnalyticsCard
+              title="Tip Earnings"
+              value={formatCurrency(analytics.tipEarnings)}
+              subtitle={`${((analytics.tipEarnings / analytics.totalEarnings) * 100 || 0).toFixed(1)}% of total`}
+              icon={<Award size={16} color="#FFF" />}
+              color="#F59E0B"
+            />
+            <AnalyticsCard
+              title="Total Deliveries"
+              value={analytics.totalDeliveries.toString()}
+              icon={<Package size={16} color="#FFF" />}
+              color="#3B82F6"
+            />
+            <AnalyticsCard
+              title="Avg per Delivery"
+              value={formatCurrency(analytics.averageEarning)}
+              subtitle={`Highest: ${formatCurrency(analytics.highestEarning)}`}
+              icon={<TrendingUp size={16} color="#FFF" />}
+              color="#8B5CF6"
+            />
+          </View>
+        </View>
+
+        {/* Filters Section */}
+        <View style={styles.filtersSection}>
+          <Text style={styles.sectionTitle}>
+            <Filter size={16} color="#666" /> Filters & Sorting
+          </Text>
+          
+          <View style={styles.filterRow}>
+            <Text style={styles.filterLabel}>Date Range:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.filterOptions}>
+                {['today', 'week', 'month', 'all'].map((range) => (
+                  <TouchableOpacity
+                    key={range}
+                    style={[
+                      styles.filterButton,
+                      filters.dateRange === range && styles.filterButtonActive
+                    ]}
+                    onPress={() => setFilters(prev => ({ ...prev, dateRange: range }))}
+                  >
+                    <Text style={[
+                      styles.filterButtonText,
+                      filters.dateRange === range && styles.filterButtonTextActive
+                    ]}>
+                      {range.charAt(0).toUpperCase() + range.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+
+          <View style={styles.filterRow}>
+            <Text style={styles.filterLabel}>Sort By:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.filterOptions}>
+                {[
+                  { value: 'newest', label: 'Newest' },
+                  { value: 'oldest', label: 'Oldest' },
+                  { value: 'highestEarning', label: 'Highest Earning' }
+                ].map((sort) => (
+                  <TouchableOpacity
+                    key={sort.value}
+                    style={[
+                      styles.filterButton,
+                      filters.sortBy === sort.value && styles.filterButtonActive
+                    ]}
+                    onPress={() => setFilters(prev => ({ ...prev, sortBy: sort.value }))}
+                  >
+                    <Text style={[
+                      styles.filterButtonText,
+                      filters.sortBy === sort.value && styles.filterButtonTextActive
+                    ]}>
+                      {sort.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+
+        {/* Orders List */}
+        <View style={styles.ordersSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Order History</Text>
+            <Text style={styles.resultsCount}>
+              Showing {state.deliveryHistory.length} orders
             </Text>
           </View>
-        ) : (
-          filteredOrders.map((order, index) => (
-            <View key={index} style={styles.orderCard}>
-              <View style={styles.orderHeader}>
-                <View style={styles.orderInfo}>
-                  <Text style={styles.orderDate}>{formatDate(order.updatedAt)}</Text>
-                  <Text style={styles.orderTime}>{formatTime(order.updatedAt)}</Text>
-                </View>
-                <View style={styles.orderEarnings}>
-                  <Text style={styles.earningsAmount}>
-                    ETB {((order.deliveryFee || 0) + (order.tip || 0)).toFixed(2)}
-                  </Text>
-                  <Text style={styles.earningsLabel}>Total</Text>
-                </View>
-              </View>
 
-              <View style={styles.orderDetails}>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Restaurant:</Text>
-                  <Text style={styles.detailText}>{order.restaurantName || 'N/A'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Description:</Text>
-                  <Text style={styles.detailText}>{order.description || 'N/A'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Delivery Fee:</Text>
-                  <Text style={styles.detailText}>ETB {order.deliveryFee?.toFixed(2) || '0.00'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Tip:</Text>
-                  <Text style={styles.detailText}>ETB {order.tip?.toFixed(2) || '0.00'}</Text>
-                </View>
-              </View>
-
-              <View style={styles.orderStatus}>
-                <View style={[styles.statusBadge, styles.completedBadge]}>
-                  <CheckCircle color="#10B981" size={14} />
-                  <Text style={styles.statusText}>{order.orderStatus}</Text>
-                </View>
-              </View>
+          {state.deliveryHistory.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Calendar size={48} color="#9CA3AF" />
+              <Text style={styles.emptyStateTitle}>No orders found</Text>
+              <Text style={styles.emptyStateText}>
+                {filters.dateRange !== 'all' 
+                  ? `No completed deliveries in the selected period.`
+                  : 'No completed delivery history yet.'
+                }
+              </Text>
             </View>
-          ))
-        )}
+          ) : (
+            <FlatList
+              data={state.deliveryHistory}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => <OrderItem item={item} />}
+              scrollEnabled={false}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -403,151 +458,170 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
+  header: {
+    padding: 20,
+    paddingTop: 10,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFF',
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: '#E2E8F0',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 16,
+    marginTop: 12,
     fontSize: 16,
-    color: '#6B7280',
+    color: '#666',
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    padding: 20,
   },
   errorTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1F2937',
+    color: '#EF4444',
     marginBottom: 8,
   },
   errorMessage: {
     fontSize: 16,
     color: '#6B7280',
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   retryButton: {
-    backgroundColor: '#1E40AF',
+    backgroundColor: '#007AFF',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#FFFFFF',
+    color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
   },
-  header: {
+  analyticsSection: {
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  analyticsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  analyticsCard: {
+    width: (width - 40) / 2 - 4,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  analyticsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  analyticsTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFF',
+    marginLeft: 6,
+    opacity: 0.9,
+  },
+  analyticsValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFF',
+    marginBottom: 2,
+  },
+  analyticsSubtitle: {
+    fontSize: 10,
+    color: '#FFF',
+    opacity: 0.8,
+  },
+  filtersSection: {
+    backgroundColor: '#FFF',
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  filterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    width: 80,
+    marginRight: 12,
+  },
+  filterOptions: {
+    flexDirection: 'row',
+    flex: 1,
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  filterButtonActive: {
+    backgroundColor: '#007AFF',
+  },
+  filterButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  filterButtonTextActive: {
+    color: '#FFF',
+  },
+  ordersSection: {
+    flex: 1,
+    padding: 16,
+  },
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    marginBottom: 12,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  subtitle: {
+  resultsCount: {
     fontSize: 14,
     color: '#6B7280',
-    marginTop: 4,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  headerButton: {
-    padding: 8,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-  },
-  statsContainer: {
-    margin: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  statsTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    minWidth: '45%',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginTop: 6,
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.9,
-    textAlign: 'center',
-  },
-  ordersList: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyMessage: {
-    fontSize: 16,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 24,
-    paddingHorizontal: 40,
   },
   orderCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: '#FFF',
     padding: 16,
+    borderRadius: 12,
     marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
     elevation: 2,
   },
   orderHeader: {
@@ -556,56 +630,56 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
-  orderInfo: {
-    flex: 1,
-  },
-  orderDate: {
+  restaurantName: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#1F2937',
+    flex: 1,
   },
-  orderTime: {
+  orderCode: {
     fontSize: 14,
     color: '#6B7280',
-    marginTop: 4,
-  },
-  orderEarnings: {
-    alignItems: 'flex-end',
-  },
-  earningsAmount: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#10B981',
-  },
-  earningsLabel: {
-    fontSize: 12,
-    color: '#6B7280',
+    fontWeight: '500',
   },
   orderDetails: {
     marginBottom: 12,
   },
   detailRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   detailLabel: {
     fontSize: 14,
     color: '#6B7280',
-    width: 100,
   },
-  detailText: {
+  detailValue: {
     fontSize: 14,
+    fontWeight: '500',
     color: '#1F2937',
-    flex: 1,
   },
-  orderStatus: {
+  tipValue: {
+    color: '#10B981',
+  },
+  totalValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  orderFooter: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  dateText: {
+    fontSize: 12,
+    color: '#9CA3AF',
   },
   statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -616,7 +690,24 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#10B981',
-    marginLeft: 4,
+    color: '#065F46',
+    textTransform: 'capitalize',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#6B7280',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
   },
 });

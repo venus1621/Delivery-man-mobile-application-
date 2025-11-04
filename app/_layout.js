@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack ,Tabs} from "expo-router";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -9,25 +9,56 @@ import "../firebase"; // Initialize Firebase
  
 SplashScreen.preventAutoHideAsync();
  
-const queryClient = new QueryClient();
+// Configure QueryClient for better performance
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60000, // 1 minute
+      cacheTime: 300000, // 5 minutes
+      retry: 2,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
  
 function RootLayoutNav() {
   return (
-   
-   
-<Tabs screenOptions={{     headerShown: false,                tabBarStyle: { display: 'none', }, }} >
-      <Stack screenOptions={{ headerBackTitle: "Back" }} options={{ headerShown: false }}>
-      <Stack.Screen name="index" options={{ headerShown: false ,title:"home" }} />
-      <Stack.Screen name="login" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="order/[orderId]" options={{
-        title: "Order Details",
-        headerStyle: { backgroundColor: "#1E40AF" },
-        headerTintColor: "#fff",
-        
-      }} />
+    <Stack 
+      screenOptions={{ 
+        headerShown: false,
+        animation: 'slide_from_right',
+        gestureEnabled: true,
+      }}
+    >
+      <Stack.Screen 
+        name="index" 
+        options={{ headerShown: false }} 
+      />
+      <Stack.Screen 
+        name="login" 
+        options={{ 
+          headerShown: false,
+          gestureEnabled: false, // Prevent back gesture on login
+        }} 
+      />
+      <Stack.Screen 
+        name="tabs" 
+        options={{ 
+          headerShown: false,
+          gestureEnabled: false, // Prevent back gesture from tabs
+        }} 
+      />
+      <Stack.Screen 
+        name="order/[orderId]" 
+        options={{
+          title: "Order Details",
+          headerShown: true,
+          headerStyle: { backgroundColor: "#667eea" },
+          headerTintColor: "#fff",
+          headerTitleStyle: { fontWeight: 'bold' },
+        }} 
+      />
     </Stack>
-    </Tabs>
   );
 }
  

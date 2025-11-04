@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,10 +8,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react-native';
+import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Phone } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../providers/auth-provider';
 
@@ -22,24 +23,54 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [touched, setTouched] = useState({ phone: false, password: false });
 
-  const handleLogin = async () => {
+  // Validation logic
+  const validation = useMemo(() => {
+    const phoneValid = phone.trim().length === 9 && /^\d+$/.test(phone);
+    const passwordValid = password.trim().length >= 6;
+    return {
+      phoneValid,
+      passwordValid,
+      isValid: phoneValid && passwordValid,
+    };
+  }, [phone, password]);
+
+  const handleLogin = useCallback(async () => {
+    // Mark all fields as touched
+    setTouched({ phone: true, password: true });
+
+    // Validation
     if (!phone.trim() || !password.trim()) {
-      setErrorMessage('Please enter both phone number and password');
+      setErrorMessage('Please fill in all fields');
       return;
     }
+
+    if (phone.trim().length !== 9 || !/^\d+$/.test(phone)) {
+      setErrorMessage('Please enter a valid 9-digit phone number');
+      return;
+    }
+
+    if (password.trim().length < 6) {
+      setErrorMessage('Password must be at least 6 characters');
+      return;
+    }
+
+    // Clear error and close keyboard
+    setErrorMessage('');
+    Keyboard.dismiss();
+
     const fullPhone = `+251${phone.trim()}`;
     const result = await login(fullPhone, password.trim());
     
     if (result.success) {
       setSuccessMessage('Login successful! Redirecting...');
-      setTimeout(() => {
-        router.replace('/tabs/dashboard');
-      }, 1500);
+      // Immediate navigation
+      router.replace('/tabs/dashboard');
     } else {
-      setErrorMessage(result.message || 'Invalid credentials');
+      setErrorMessage(result.message || 'Invalid credentials. Please try again.');
     }
-  };
+  }, [phone, password, login]);
 
   useEffect(() => {
     if (errorMessage || successMessage) {
@@ -83,7 +114,13 @@ export default function LoginScreen() {
                 >
                   {/* Phone Input */}
                   <View style={styles.inputContainer}>
-                    <View style={styles.inputWrapper}>
+                    <View style={[
+                      styles.inputWrapper,
+                      touched.phone && !validation.phoneValid && styles.inputError
+                    ]}>
+                      <View style={styles.inputIconContainer}>
+                        <Phone color={touched.phone && !validation.phoneValid ? "#ef4444" : "#6b7280"} size={20} />
+                      </View>
                       <View style={styles.countryCodeContainer}>
                         <Text style={styles.countryCode}>+251</Text>
                       </View>
@@ -92,27 +129,41 @@ export default function LoginScreen() {
                         placeholder="911111111"
                         placeholderTextColor="#9ca3af"
                         value={phone}
-                        onChangeText={setPhone}
+                        onChangeText={(text) => {
+                          setPhone(text.replace(/[^0-9]/g, '').slice(0, 9));
+                          if (touched.phone) setTouched(prev => ({ ...prev, phone: true }));
+                        }}
+                        onBlur={() => setTouched(prev => ({ ...prev, phone: true }))}
                         keyboardType="phone-pad"
                         autoCapitalize="none"
                         autoCorrect={false}
+                        maxLength={9}
                         testID="phone-input"
                       />
                     </View>
+                    {touched.phone && !validation.phoneValid && phone.length > 0 && (
+                      <Text style={styles.validationText}>Enter a valid 9-digit number</Text>
+                    )}
                   </View>
 
                   {/* Password Input */}
                   <View style={styles.inputContainer}>
-                    <View style={styles.inputWrapper}>
-                      <View style={[styles.inputIcon, { backgroundColor: 'rgba(107, 114, 128, 0.1)' }]}>
-                        <Lock color="#6b7280" size={20} />
+                    <View style={[
+                      styles.inputWrapper,
+                      touched.password && !validation.passwordValid && styles.inputError
+                    ]}>
+                      <View style={styles.inputIconContainer}>
+                        <Lock color={touched.password && !validation.passwordValid ? "#ef4444" : "#6b7280"} size={20} />
                       </View>
                       <TextInput
                         style={[styles.input, { backgroundColor: 'transparent' }]}
-                        placeholder="Password"
+                        placeholder="Password (min 6 characters)"
                         placeholderTextColor="#9ca3af"
                         value={password}
                         onChangeText={setPassword}
+                        onBlur={() => setTouched(prev => ({ ...prev, password: true }))}
+                        onSubmitEditing={handleLogin}
+                        returnKeyType="go"
                         secureTextEntry={!showPassword}
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -121,6 +172,7 @@ export default function LoginScreen() {
                       <TouchableOpacity
                         onPress={() => setShowPassword(!showPassword)}
                         style={styles.eyeIcon}
+                        testID="toggle-password"
                       >
                         {showPassword ? (
                           <EyeOff color="#6b7280" size={20} />
@@ -129,6 +181,9 @@ export default function LoginScreen() {
                         )}
                       </TouchableOpacity>
                     </View>
+                    {touched.password && !validation.passwordValid && password.length > 0 && (
+                      <Text style={styles.validationText}>Password must be at least 6 characters</Text>
+                    )}
                   </View>
 
                   {/* Login Button */}
@@ -285,24 +340,35 @@ const styles = StyleSheet.create({
   countryCodeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    marginRight: 8,
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
   countryCode: {
     fontSize: 16,
-    color: '#6b7280',
-    fontWeight: '600',
+    color: '#667eea',
+    fontWeight: '700',
   },
-  inputIcon: {
+  inputIconContainer: {
     width: 36,
     height: 36,
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    backgroundColor: 'rgba(107, 114, 128, 0.1)',
+  },
+  inputError: {
+    borderWidth: 1,
+    borderColor: '#ef4444',
+  },
+  validationText: {
+    fontSize: 12,
+    color: '#ef4444',
+    marginTop: 4,
+    marginLeft: 16,
   },
   input: {
     flex: 1,
