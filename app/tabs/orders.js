@@ -63,13 +63,12 @@ export default function OrdersScreen() {
   const [fadeAnim] = useState(new Animated.Value(0));
   const [userLocation, setUserLocation] = useState(null);
 
+  // Fetch orders regardless of online status (API works independently)
   useEffect(() => {
-    if (isOnline) {
-      fetchAvailableOrders();
-      // Simulate user location for distance calculation (Addis Ababa)
-      setUserLocation({ latitude: 9.0100, longitude: 38.7600 });
-    }
-  }, [isOnline, fetchAvailableOrders]);
+    fetchAvailableOrders();
+    // Simulate user location for distance calculation (Addis Ababa)
+    setUserLocation({ latitude: 9.0100, longitude: 38.7600 });
+  }, [fetchAvailableOrders]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -85,7 +84,27 @@ export default function OrdersScreen() {
     setRefreshing(false);
   };
 
+  // 📦 Accept order - Requires being ONLINE (socket connection)
   const handleAcceptOrder = async (order) => {
+    // Check if user is online and connected to socket
+    if (!isOnline) {
+      Alert.alert(
+        'Go Online First',
+        'You need to be ONLINE to accept orders. Please go to Dashboard and switch to Online mode.',
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+
+    if (!isConnected) {
+      Alert.alert(
+        'Not Connected',
+        'Not connected to server. Please wait while we establish connection, then try again.',
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+
     const totalEarnings = (order.deliveryFee || 0) + (order.tip || 0);
     
     Alert.alert(
@@ -105,7 +124,7 @@ export default function OrdersScreen() {
               }
             } catch (error) {
               console.error('Error accepting order:', error);
-              Alert.alert('Error', 'Failed to accept order. Please try again.');
+              Alert.alert('Error', 'Failed to accept order. Please ensure you are online and try again.');
             }
           },
         },
@@ -281,32 +300,8 @@ const getOrderPriority = (order) => {
     }).format(amount);
   };
 
-  if (!isOnline) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.offlineContainer}>
-          <View style={styles.offlineIcon}>
-            <Truck color="#6B7280" size={48} />
-          </View>
-          <Text style={styles.offlineTitle}>Go Online to See Orders</Text>
-          <Text style={styles.offlineMessage}>
-            You need to be online to view and accept delivery orders.
-          </Text>
-          <TouchableOpacity 
-            style={styles.onlineButton}
-            onPress={() => router.push('/tabs/dashboard')}
-          >
-            <LinearGradient
-              colors={['#1E40AF', '#3730A3']}
-              style={styles.buttonGradient}
-            >
-              <Text style={styles.onlineButtonText}>Go to Dashboard</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Note: Removed offline check - users can VIEW orders while offline
+  // but cannot ACCEPT them (handled in handleAcceptOrder function)
 
   if (isLoadingOrders && !refreshing) {
     return (
@@ -377,8 +372,17 @@ const getOrderPriority = (order) => {
         {showFilters && <FilterBar />}
       </View>
 
-      {/* Connection Status */}
-      {!isConnected && (
+      {/* Offline Status Warning */}
+      {!isOnline && (
+        <View style={styles.offlineWarning}>
+          <Text style={styles.offlineWarningText}>
+            📴 You are OFFLINE - You can view orders but must go ONLINE to accept them.
+          </Text>
+        </View>
+      )}
+
+      {/* Connection Status Warning (when online but not connected) */}
+      {isOnline && !isConnected && (
         <View style={styles.connectionWarning}>
           <Text style={styles.connectionWarningText}>
             🔴 Connecting to server... Orders may not update in real-time.
@@ -518,17 +522,20 @@ const getOrderPriority = (order) => {
                   </View>
                 </View>
 
-                {/* Accept Button */}
+                {/* Accept Button - Disabled when offline */}
                 <TouchableOpacity 
-                  style={styles.acceptButton}
+                  style={[styles.acceptButton, !isOnline && styles.acceptButtonDisabled]}
                   onPress={() => handleAcceptOrder(order)}
+                  disabled={!isOnline}
                 >
                   <LinearGradient
-                    colors={['#10B981', '#059669']}
+                    colors={!isOnline ? ['#9CA3AF', '#6B7280'] : ['#10B981', '#059669']}
                     style={styles.acceptButtonGradient}
                   >
                     <Truck color="#FFFFFF" size={18} />
-                    <Text style={styles.acceptButtonText}>Accept Order</Text>
+                    <Text style={styles.acceptButtonText}>
+                      {!isOnline ? 'Go Online to Accept' : 'Accept Order'}
+                    </Text>
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
@@ -613,6 +620,19 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: '#FFFFFF',
+  },
+  offlineWarning: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FECACA',
+  },
+  offlineWarningText: {
+    fontSize: 14,
+    color: '#991B1B',
+    textAlign: 'center',
+    fontWeight: '600',
   },
   connectionWarning: {
     backgroundColor: '#FEF3C7',
@@ -806,6 +826,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
+  },
+  acceptButtonDisabled: {
+    opacity: 0.6,
+    shadowColor: '#6B7280',
   },
   acceptButtonGradient: {
     flexDirection: 'row',

@@ -14,16 +14,20 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar, Filter, TrendingUp, DollarSign, Package, Award } from 'lucide-react-native';
-import { useAuth } from '../../providers/auth-provider';
+import { useDelivery } from '../../providers/delivery-provider';
 
 const { width } = Dimensions.get('window');
 
 export default function HistoryScreen() {
-  const { token } = useAuth();
+  const { 
+    deliveryHistory, 
+    isLoadingHistory, 
+    historyError, 
+    fetchDeliveryHistory 
+  } = useDelivery();
+  
   const [state, setState] = useState({
-    isLoadingHistory: true,
-    historyError: null,
-    deliveryHistory: [],
+    filteredHistory: [],
     originalHistory: [], // Store original data for filtering
   });
   const [refreshing, setRefreshing] = useState(false);
@@ -39,90 +43,16 @@ export default function HistoryScreen() {
     highestEarning: 0,
   });
 
-  // 📊 Fetch delivery person order history
-  const fetchDeliveryHistory = useCallback(async () => {
-    console.log("Fetching completed delivery history...");
-
-    if (!token) {
-      console.error("No authentication token available");
-      setState((prev) => ({
+  // Update local state when delivery history changes
+  useEffect(() => {
+    if (deliveryHistory && deliveryHistory.length > 0) {
+      setState(prev => ({
         ...prev,
-        isLoadingHistory: false,
-        historyError: "Authentication required. Please log in again.",
-      }));
-      return;
-    }
-
-    try {
-      setState((prev) => ({
-        ...prev,
-        isLoadingHistory: true,
-        historyError: null,
-      }));
-
-      const response = await fetch(
-        "https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=Completed",
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok || data?.status !== "success") {
-        throw new Error(data?.message || `HTTP ${response.status}: Failed to fetch orders`);
-      }
-
-      if (!data.data || !Array.isArray(data.data) || typeof data.count !== "number") {
-        throw new Error("Invalid response format: missing data array or count");
-      }
-
-      const normalizedHistory = data.data
-        .map((order) => {
-          if (!order._id && !order.id) {
-            console.warn("Skipping invalid order:", order);
-            return null;
-          }
-
-          return {
-            id: order._id || order.id,
-            restaurantName: order.restaurantName || "Unknown Restaurant",
-            deliveryFee: order.deliveryFee ?? 0,
-            tip: order.tip ?? 0,
-            totalEarnings: (order.deliveryFee ?? 0) + (order.tip ?? 0),
-            orderStatus: order.orderStatus || "",
-            orderCode: order.orderCode || "",
-            updatedAt: order.updatedAt ? new Date(order.updatedAt).toISOString() : null,
-            createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null,
-          };
-        })
-        .filter(Boolean); // Remove any nulls
-
-      setState((prev) => ({
-        ...prev,
-        isLoadingHistory: false,
-        deliveryHistory: normalizedHistory,
-        originalHistory: normalizedHistory, // Store original for filtering
-      }));
-
-      console.log(`✅ Loaded ${normalizedHistory.length} completed deliveries`);
-
-    } catch (error) {
-      console.error("❌ Error fetching delivery history:", error);
-      setState((prev) => ({
-        ...prev,
-        isLoadingHistory: false,
-        historyError:
-          error.message.includes("Failed to fetch")
-            ? "Unable to connect to server. Please try again later."
-            : error.message || "An unexpected error occurred.",
+        originalHistory: deliveryHistory,
+        filteredHistory: deliveryHistory,
       }));
     }
-  }, [token]);
+  }, [deliveryHistory]);
 
   // Calculate analytics from delivery history
   const calculateAnalytics = useCallback((history) => {
@@ -194,7 +124,7 @@ export default function HistoryScreen() {
         break;
     }
 
-    setState(prev => ({ ...prev, deliveryHistory: filteredData }));
+    setState(prev => ({ ...prev, filteredHistory: filteredData }));
     calculateAnalytics(filteredData);
   }, [filters, state.originalHistory, calculateAnalytics]);
 
@@ -215,7 +145,7 @@ export default function HistoryScreen() {
   };
 
   const formatCurrency = (amount) => {
-    return `$${amount.toFixed(2)}`;
+    return `ETB ${amount.toFixed(2)}`;
   };
 
   const formatDate = (dateString) => {
@@ -279,7 +209,7 @@ export default function HistoryScreen() {
     </View>
   );
 
-  if (state.isLoadingHistory && !refreshing) {
+  if (isLoadingHistory && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -290,12 +220,12 @@ export default function HistoryScreen() {
     );
   }
 
-  if (state.historyError && state.deliveryHistory.length === 0) {
+  if (historyError && (!deliveryHistory || deliveryHistory.length === 0)) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
           <Text style={styles.errorTitle}>Unable to Load History</Text>
-          <Text style={styles.errorMessage}>{state.historyError}</Text>
+          <Text style={styles.errorMessage}>{historyError}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={fetchDeliveryHistory}>
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
@@ -423,11 +353,11 @@ export default function HistoryScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Order History</Text>
             <Text style={styles.resultsCount}>
-              Showing {state.deliveryHistory.length} orders
+              Showing {state.filteredHistory.length} orders
             </Text>
           </View>
 
-          {state.deliveryHistory.length === 0 ? (
+          {state.filteredHistory.length === 0 ? (
             <View style={styles.emptyState}>
               <Calendar size={48} color="#9CA3AF" />
               <Text style={styles.emptyStateTitle}>No orders found</Text>
@@ -440,7 +370,7 @@ export default function HistoryScreen() {
             </View>
           ) : (
             <FlatList
-              data={state.deliveryHistory}
+              data={state.filteredHistory}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => <OrderItem item={item} />}
               scrollEnabled={false}

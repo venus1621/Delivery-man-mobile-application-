@@ -41,6 +41,28 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           }
         }
 
+        // Check if user is a Delivery Person
+        if (user && user.role !== 'Delivery_Person') {
+          console.log('❌ User is not a Delivery Person - logging out');
+          // Clear all stored data
+          await Promise.all([
+            AsyncStorage.removeItem('authToken'),
+            AsyncStorage.removeItem('userId'),
+            AsyncStorage.removeItem('userRole'),
+            AsyncStorage.removeItem('userProfile'),
+          ]);
+          
+          setState({
+            isAuthenticated: false,
+            isLoading: false,
+            token: null,
+            userId: null,
+            userRole: null,
+            user: null,
+          });
+          return;
+        }
+
         setState({
           isAuthenticated: true,
           isLoading: false,
@@ -120,12 +142,23 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       } else {
         setState(prev => ({ ...prev, isLoading: false }));
         console.log('❌ Login failed:', data.message);
-        return { success: false, message: data.message || 'Login failed' };
+        
+        // Display server error message
+        const serverMessage = data.message || data.error || 
+                             (data.errors && data.errors[0]?.msg) || 
+                             'Login failed';
+        return { success: false, message: serverMessage };
       }
     } catch (error) {
       console.error('Login error:', error);
       setState(prev => ({ ...prev, isLoading: false }));
-      return { success: false, message: 'Network error. Please try again.' };
+      
+      // Check if it's a network error or something else
+      const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+        ? 'Unable to connect to server. Please check your internet connection and try again.'
+        : 'Something went wrong. Please try again later.';
+      
+      return { success: false, message: errorMessage };
     }
   }, []);
 

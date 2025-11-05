@@ -35,8 +35,9 @@ export default function OrderDetailsScreen() {
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
-  const [isCompleting, setIsCompleting] = useState(false);
   const [verificationError, setVerificationError] = useState('');
+  const [attemptsLeft, setAttemptsLeft] = useState(3);
+  const [isLocked, setIsLocked] = useState(false);
 
   // Find the order details (support activeOrder being null, an array, or a single object)
   const order = useMemo(() => {
@@ -48,72 +49,99 @@ export default function OrderDetailsScreen() {
 
 
 console.log(order)
-  const handleVerifyDelivery = async () => {
-    if (!verificationCode.trim()) {
-      Alert.alert('Error', 'Please enter the verification code');
+
+  const handleVerifyAndComplete = async (code) => {
+    if (isLocked) {
+      Alert.alert('Locked', 'Too many failed attempts. Please contact support.');
       return;
     }
+
+    if (!code || code.length !== 6) {
+      return;
+    }
+
     setIsVerifying(true);
-    setVerificationError(''); // Clear previous errors
+    setVerificationError('');
+
     try {
-       const result = await verifyDelivery(order.id, verificationCode.trim());
+      // First verify the delivery
+      const result = await verifyDelivery(order.id, code);
+      
       if (result.success) {
-        Alert.alert('Success', 'Delivery verified successfully!');
-        setShowVerificationModal(false);
-        setVerificationCode('');
-        setVerificationError('');
-        router.back();
+        // Show success message
+        Alert.alert(
+          '✅ Delivery Verified!',
+          'Order has been completed successfully',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setShowVerificationModal(false);
+                setVerificationCode('');
+                setVerificationError('');
+                setAttemptsLeft(3);
+                router.back();
+              }
+            }
+          ]
+        );
       } else {
-        // Handle verification failure - show error message
-        if (result.error) {
-          setVerificationError(result.error);
+        // Handle verification failure
+        const newAttemptsLeft = attemptsLeft - 1;
+        setAttemptsLeft(newAttemptsLeft);
+        
+        if (newAttemptsLeft === 0) {
+          setIsLocked(true);
+          setVerificationError('❌ Account locked. Too many failed attempts. Please contact support.');
+          Alert.alert(
+            'Account Locked',
+            'You have exceeded the maximum number of verification attempts. Please contact support.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          const errorMessage = result.error || 'Invalid verification code';
+          setVerificationError(`❌ ${errorMessage}. ${newAttemptsLeft} ${newAttemptsLeft === 1 ? 'attempt' : 'attempts'} remaining.`);
+          setVerificationCode(''); // Clear the code for retry
         }
-        // Don't close the modal on error, let user try again
       }
     } catch (error) {
       console.error('Error verifying delivery:', error);
-      setVerificationError('Failed to verify delivery. Please try again.');
+      const newAttemptsLeft = attemptsLeft - 1;
+      setAttemptsLeft(newAttemptsLeft);
+      
+      if (newAttemptsLeft === 0) {
+        setIsLocked(true);
+        setVerificationError('❌ Account locked. Too many failed attempts. Please contact support.');
+      } else {
+        setVerificationError(`❌ Failed to verify. ${newAttemptsLeft} ${newAttemptsLeft === 1 ? 'attempt' : 'attempts'} remaining.`);
+        setVerificationCode('');
+      }
     } finally {
       setIsVerifying(false);
     }
   };
 
-  // Clear verification error when user starts typing
+  // Handle verification code change with auto-submit
   const handleVerificationCodeChange = (text) => {
-    setVerificationCode(text);
+    // Only allow numbers
+    const numericText = text.replace(/[^0-9]/g, '');
+    
+    // Limit to 6 digits
+    const limitedText = numericText.slice(0, 6);
+    
+    setVerificationCode(limitedText);
+    
+    // Clear error when user starts typing
     if (verificationError) {
       setVerificationError('');
     }
+    
+    // Auto-submit when 6 digits are entered
+    if (limitedText.length === 6 && !isVerifying && !isLocked) {
+      handleVerifyAndComplete(limitedText);
+    }
   };
 
-  const handleCompleteOrder = async () => {
-    Alert.alert(
-      'Complete Order',
-      'Are you sure you want to complete this delivery?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Complete',
-          style: 'default',
-          onPress: async () => {
-            setIsCompleting(true);
-            try {
-              const success = await completeOrder(orderId);
-              if (success) {
-                Alert.alert('Success', 'Order completed successfully!');
-                router.back();
-              }
-            } catch (error) {
-              console.error('Error completing order:', error);
-              Alert.alert('Error', 'Failed to complete order. Please try again.');
-            } finally {
-              setIsCompleting(false);
-            }
-          },
-        },
-      ]
-    );
-  };
 
   const handleNavigateToRestaurant = () => {
        console.log('🔍 Navigating to restaurant:',order);
@@ -428,16 +456,40 @@ console.log(order)
             <View style={styles.paymentRow}>
               <DollarSign color="#6B7280" size={16} />
               <Text style={styles.paymentLabel}>Delivery Fee:</Text>
-              <Text style={styles.paymentValue}>ETB {order.deliveryFee?.toFixed(2) || '0.00'}</Text>
+              <Text style={styles.paymentValue}>
+                ETB {(() => {
+                  const fee = order.deliveryFee;
+                  if (typeof fee === 'number') return fee.toFixed(2);
+                  if (fee?.$numberDecimal) return parseFloat(fee.$numberDecimal).toFixed(2);
+                  return '0.00';
+                })()}
+              </Text>
             </View>
             <View style={styles.paymentRow}>
               <Text style={styles.paymentLabel}>Tip:</Text>
-              <Text style={styles.paymentValue}>ETB {order.tip?.toFixed(2) || '0.00'}</Text>
+              <Text style={styles.paymentValue}>
+                ETB {(() => {
+                  const tipValue = order.tip;
+                  if (typeof tipValue === 'number') return tipValue.toFixed(2);
+                  if (tipValue?.$numberDecimal) return parseFloat(tipValue.$numberDecimal).toFixed(2);
+                  return '0.00';
+                })()}
+              </Text>
             </View>
             <View style={[styles.paymentRow, styles.totalRow]}>
               <Text style={styles.totalLabel}>Total Earnings:</Text>
               <Text style={styles.totalValue}>
-                ETB {(order.grandTotal || ((order.deliveryFee || 0) + (order.tip || 0))).toFixed(2)}
+                ETB {(() => {
+                  const extractNumber = (val) => {
+                    if (typeof val === 'number') return val;
+                    if (val?.$numberDecimal) return parseFloat(val.$numberDecimal);
+                    return 0;
+                  };
+                  const fee = extractNumber(order.deliveryFee);
+                  const tipVal = extractNumber(order.tip);
+                  const total = extractNumber(order.grandTotal) || (fee + tipVal);
+                  return total.toFixed(2);
+                })()}
               </Text>
             </View>
           </View>
@@ -445,52 +497,37 @@ console.log(order)
 
         {/* Action Buttons */}
         <View style={styles.actionsSection}>
-          {order.orderStatus === 'Cooked' && (
-            <TouchableOpacity 
-              style={styles.primaryButton}
-              onPress={() => setShowVerificationModal(true)}
-            >
-              <LinearGradient
-                colors={['#10B981', '#059669']}
-                style={styles.buttonGradient}
-              >
-                <CheckCircle color="#FFFFFF" size={20} />
-                <Text style={styles.buttonText}>Verify Pickup</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-          
-          {order.orderStatus === 'Delivering' && (
-            <TouchableOpacity 
-              style={styles.primaryButton}
-              onPress={() => setShowVerificationModal(true)}
-              disabled={isVerifying}
-            >
-              <LinearGradient
-                colors={['#3B82F6', '#1D4ED8']}
-                style={styles.buttonGradient}
-              >
-                {isVerifying ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <CheckCircle color="#FFFFFF" size={20} />
-                )}
-                <Text style={styles.buttonText}>
-                  {isVerifying ? 'Verifying...' : 'Verify Delivery'}
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-          
           <TouchableOpacity 
-            style={styles.secondaryButton}
-            onPress={handleCompleteOrder}
-            disabled={isCompleting}
+            style={styles.primaryButton}
+            onPress={() => {
+              if (!isLocked) {
+                setShowVerificationModal(true);
+              } else {
+                Alert.alert('Locked', 'Too many failed attempts. Please contact support.');
+              }
+            }}
+            disabled={isVerifying || isLocked}
           >
-            <Text style={styles.secondaryButtonText}>
-              {isCompleting ? 'Completing...' : 'Complete Order'}
-            </Text>
+            <LinearGradient
+              colors={isLocked ? ['#9CA3AF', '#6B7280'] : ['#10B981', '#059669']}
+              style={styles.buttonGradient}
+            >
+              {isVerifying ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <CheckCircle color="#FFFFFF" size={20} />
+              )}
+              <Text style={styles.buttonText}>
+                {isLocked ? 'Locked' : isVerifying ? 'Verifying...' : 'Complete Order'}
+              </Text>
+            </LinearGradient>
           </TouchableOpacity>
+          
+          {isLocked && (
+            <Text style={styles.lockedText}>
+              Account locked due to multiple failed attempts. Please contact support.
+            </Text>
+          )}
         </View>
       </ScrollView>
 
@@ -498,51 +535,78 @@ console.log(order)
       {showVerificationModal && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Enter Verification Code</Text>
+            <Text style={styles.modalTitle}>🔐 Verification Required</Text>
             <Text style={styles.modalSubtitle}>
-              Please enter the verification code provided by the customer
+              Enter the 6-digit verification code from the customer to complete the order
             </Text>
+            
+            {/* Attempts Counter */}
+            <View style={styles.attemptsContainer}>
+              <Text style={styles.attemptsText}>
+                Attempts remaining: <Text style={styles.attemptsBold}>{attemptsLeft}/3</Text>
+              </Text>
+            </View>
             
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Verification Code:</Text>
               <TextInput
-                style={[styles.textInput, verificationError ? styles.textInputError : null]}
+                style={[
+                  styles.textInput,
+                  styles.codeInput,
+                  verificationError ? styles.textInputError : null,
+                  isLocked ? styles.textInputLocked : null
+                ]}
                 value={verificationCode}
                 onChangeText={handleVerificationCodeChange}
-                placeholder="Enter code"
-                keyboardType="numeric"
+                placeholder="000000"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="number-pad"
                 maxLength={6}
                 autoFocus
+                editable={!isVerifying && !isLocked}
+                textAlign="center"
               />
+              
+              {/* Progress Indicator */}
+              <View style={styles.codeProgress}>
+                {[...Array(6)].map((_, index) => (
+                  <View 
+                    key={index} 
+                    style={[
+                      styles.codeDot,
+                      index < verificationCode.length ? styles.codeDotFilled : null
+                    ]} 
+                  />
+                ))}
+              </View>
+              
+              {isVerifying && (
+                <View style={styles.verifyingContainer}>
+                  <ActivityIndicator color="#10B981" size="small" />
+                  <Text style={styles.verifyingText}>Verifying code...</Text>
+                </View>
+              )}
+              
               {verificationError ? (
                 <Text style={styles.errorText}>{verificationError}</Text>
-              ) : null}
+              ) : (
+                <Text style={styles.hintText}>
+                  Code will be verified automatically when all 6 digits are entered
+                </Text>
+              )}
             </View>
             
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={styles.modalCancelButton}
-                onPress={() => {
-                  setShowVerificationModal(false);
-                  setVerificationCode('');
-                  setVerificationError('');
-                }}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.modalConfirmButton}
-                onPress={handleVerifyDelivery}
-                disabled={isVerifying || !verificationCode.trim()}
-              >
-                {isVerifying ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.modalConfirmText}>Verify</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity 
+              style={styles.modalSingleButton}
+              onPress={() => {
+                setShowVerificationModal(false);
+                setVerificationCode('');
+                setVerificationError('');
+              }}
+              disabled={isVerifying}
+            >
+              <Text style={styles.modalSingleButtonText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -971,5 +1035,90 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
     marginLeft: 8,
+  },
+  lockedText: {
+    fontSize: 14,
+    color: '#EF4444',
+    textAlign: 'center',
+    marginTop: 12,
+    fontWeight: '500',
+  },
+  attemptsContainer: {
+    backgroundColor: '#FEF3C7',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  attemptsText: {
+    fontSize: 14,
+    color: '#92400E',
+    textAlign: 'center',
+  },
+  attemptsBold: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: '#B45309',
+  },
+  codeInput: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    letterSpacing: 8,
+    textAlign: 'center',
+  },
+  textInputLocked: {
+    backgroundColor: '#F3F4F6',
+    color: '#9CA3AF',
+  },
+  codeProgress: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  codeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#E5E7EB',
+  },
+  codeDotFilled: {
+    backgroundColor: '#10B981',
+  },
+  verifyingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    gap: 8,
+  },
+  verifyingText: {
+    fontSize: 14,
+    color: '#10B981',
+    fontWeight: '500',
+  },
+  hintText: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  modalSingleButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  modalSingleButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6B7280',
   },
 });

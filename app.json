@@ -15,14 +15,15 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.delivery.gebeta"
+      "bundleIdentifier": "com.venus1621.deliveryapp"
     },
     "android": {
+      "package": "com.delivery.gebeta",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.delivery.gebeta",
       "permissions": [
         "android.permission.VIBRATE",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -36,9 +37,7 @@
     "plugins": [
       [
         "expo-router",
-        {
-          "origin": "https://delivery.gebeta.com/"
-        }
+        { "origin": "https://delivery.gebeta.com/" }
       ],
       [
         "expo-location",
@@ -55,7 +54,6 @@
           }
         }
       ],
-      "expo-maps",
       "expo-web-browser"
     ],
     "assetBundlePatterns": [
@@ -64,12 +62,8 @@
       "providers/**/*"
     ],
     "extra": {
-      "router": {
-        "origin": "https://delivery.gebeta.com/"
-      },
-      "eas": {
-        "projectId": "a1342bd9-7823-4284-9bc1-a70e0ce44fd9"
-      }
+      "router": { "origin": "https://delivery.gebeta.com/" },
+      "eas": { "projectId": "a1342bd9-7823-4284-9bc1-a70e0ce44fd9" }
     }
   }
 }

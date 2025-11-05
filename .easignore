@@ -1,0 +1,22 @@
+# Ignore IDE and tool directories
+.idea/
+.vscode/
+.codacy/
+.github/
+
+# Ignore build artifacts
+dist/
+web-build/
+android/build/
+ios/build/
+android/app/build/
+
+# Ignore unnecessary files
+.DS_Store
+Thumbs.db
+*.log
+*.orig.*
+*.pem
+.env
+.env*.local
+

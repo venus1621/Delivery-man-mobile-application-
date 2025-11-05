@@ -9,12 +9,15 @@ import {
   Platform,
   ActivityIndicator,
   Keyboard,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Phone } from 'lucide-react-native';
+import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Phone, X, Key } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../providers/auth-provider';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LoginScreen() {
   const { login, isLoading } = useAuth();
@@ -25,10 +28,24 @@ export default function LoginScreen() {
   const [successMessage, setSuccessMessage] = useState('');
   const [touched, setTouched] = useState({ phone: false, password: false });
 
+  // Forgot Password Modal States
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotPasswordStep, setForgotPasswordStep] = useState(1); // 1: Phone, 2: OTP & New Password
+  const [resetPhone, setResetPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [verificationId, setVerificationId] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [resetSuccess, setResetSuccess] = useState('');
+
   // Validation logic
   const validation = useMemo(() => {
     const phoneValid = phone.trim().length === 9 && /^\d+$/.test(phone);
-    const passwordValid = password.trim().length >= 6;
+    const passwordValid = password.trim().length >= 3;
     return {
       phoneValid,
       passwordValid,
@@ -51,8 +68,8 @@ export default function LoginScreen() {
       return;
     }
 
-    if (password.trim().length < 6) {
-      setErrorMessage('Password must be at least 6 characters');
+    if (password.trim().length < 3) {
+      setErrorMessage('Password must be at least 3 characters');
       return;
     }
 
@@ -64,6 +81,12 @@ export default function LoginScreen() {
     const result = await login(fullPhone, password.trim());
     
     if (result.success) {
+      // Check if user is a Delivery Person
+      if (result.user?.role !== 'Delivery_Person') {
+        setErrorMessage('Access denied. Only delivery personnel can login to this app.');
+        return;
+      }
+      
       setSuccessMessage('Login successful! Redirecting...');
       // Immediate navigation
       router.replace('/tabs/dashboard');
@@ -81,6 +104,177 @@ export default function LoginScreen() {
       return () => clearTimeout(timer);
     }
   }, [errorMessage, successMessage]);
+
+  // Forgot Password - Step 1: Request OTP
+  const handleRequestOTP = useCallback(async () => {
+    setResetError('');
+    setResetSuccess('');
+
+    if (resetPhone.trim().length !== 9 || !/^\d+$/.test(resetPhone)) {
+      setResetError('Please enter a valid 9-digit phone number');
+      return;
+    }
+
+    setIsResettingPassword(true);
+    Keyboard.dismiss();
+
+    try {
+      const fullPhone = `+251${resetPhone.trim()}`;
+      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/users/requestResetOTP', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ phone: fullPhone }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.status === 'success') {
+        setVerificationId(data.data?.verificationId || '');
+        setResetSuccess(data.data?.message || 'OTP sent successfully!');
+        setTimeout(() => {
+          setForgotPasswordStep(2);
+          setResetSuccess('');
+        }, 1500);
+      } else {
+        // Display server error message
+        const serverMessage = data.message || data.error || 
+                             (data.errors && data.errors[0]?.msg) || 
+                             'Failed to send OTP. Please try again.';
+        setResetError(serverMessage);
+      }
+    } catch (error) {
+      console.error('Error requesting OTP:', error);
+      
+      // Check if it's a network error or something else
+      const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+        ? 'Unable to connect to server. Please check your internet connection and try again.'
+        : 'Something went wrong. Please try again later.';
+      
+      setResetError(errorMessage);
+    } finally {
+      setIsResettingPassword(false);
+    }
+  }, [resetPhone]);
+
+  // Forgot Password - Step 2: Reset Password with OTP
+  const handleResetPassword = useCallback(async () => {
+    setResetError('');
+    setResetSuccess('');
+
+    // Validation
+    if (!otp.trim()) {
+      setResetError('Please enter the OTP code');
+      return;
+    }
+
+    if (otp.trim().length !== 6) {
+      setResetError('OTP must be 6 digits');
+      return;
+    }
+
+    if (!newPassword.trim() || newPassword.trim().length < 3) {
+      setResetError('Password must be at least 3 characters');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setResetError('Passwords do not match');
+      return;
+    }
+
+    setIsResettingPassword(true);
+    Keyboard.dismiss();
+
+    try {
+      const fullPhone = `+251${resetPhone.trim()}`;
+      const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/users/resetPasswordOTP', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone: fullPhone,
+          code: otp.trim(),
+          password: newPassword.trim(),
+          passwordConfirm: confirmPassword.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.status === 'success') {
+        // Check if user is a Delivery Person
+        if (data.data?.user?.role !== 'Delivery_Person') {
+          setResetError('Access denied. Only delivery personnel can access this app.');
+          return;
+        }
+        
+        setResetSuccess('Password reset successful! Logging you in...');
+        
+        // Auto-login with the returned token
+        if (data.token && data.data?.user) {
+          const { token, data: { user } } = data;
+          
+          // Store auth data in AsyncStorage (same as login flow)
+          await Promise.all([
+            AsyncStorage.setItem('authToken', token),
+            AsyncStorage.setItem('userId', user._id),
+            AsyncStorage.setItem('userRole', user.role),
+            AsyncStorage.setItem('userProfile', JSON.stringify(user)),
+          ]);
+
+          console.log('✅ Password reset successful, user authenticated:', user._id);
+          
+          setTimeout(() => {
+            // Close modal and navigate
+            setShowForgotPasswordModal(false);
+            setSuccessMessage('Password reset successful! Welcome back!');
+            router.replace('/tabs/dashboard');
+            
+            // Reset forgot password form
+            setForgotPasswordStep(1);
+            setResetPhone('');
+            setOtp('');
+            setNewPassword('');
+            setConfirmPassword('');
+            setResetError('');
+            setResetSuccess('');
+          }, 1500);
+        }
+      } else {
+        // Display server error message
+        const serverMessage = data.message || data.error || 
+                             (data.errors && data.errors[0]?.msg) || 
+                             'Failed to reset password. Please try again.';
+        setResetError(serverMessage);
+      }
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      
+      // Check if it's a network error or something else
+      const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+        ? 'Unable to connect to server. Please check your internet connection and try again.'
+        : 'Something went wrong. Please try again later.';
+      
+      setResetError(errorMessage);
+    } finally {
+      setIsResettingPassword(false);
+    }
+  }, [resetPhone, otp, newPassword, confirmPassword]);
+
+  // Close forgot password modal
+  const handleCloseForgotPassword = useCallback(() => {
+    setShowForgotPasswordModal(false);
+    setForgotPasswordStep(1);
+    setResetPhone('');
+    setOtp('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setResetError('');
+    setResetSuccess('');
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -157,7 +351,7 @@ export default function LoginScreen() {
                       </View>
                       <TextInput
                         style={[styles.input, { backgroundColor: 'transparent' }]}
-                        placeholder="Password (min 6 characters)"
+                        placeholder="Password (min 3 characters)"
                         placeholderTextColor="#9ca3af"
                         value={password}
                         onChangeText={setPassword}
@@ -182,9 +376,17 @@ export default function LoginScreen() {
                       </TouchableOpacity>
                     </View>
                     {touched.password && !validation.passwordValid && password.length > 0 && (
-                      <Text style={styles.validationText}>Password must be at least 6 characters</Text>
+                      <Text style={styles.validationText}>Password must be at least 4 characters</Text>
                     )}
                   </View>
+
+                  {/* Forgot Password Link */}
+                  <TouchableOpacity
+                    onPress={() => setShowForgotPasswordModal(true)}
+                    style={styles.forgotPasswordButton}
+                  >
+                    <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                  </TouchableOpacity>
 
                   {/* Login Button */}
                   <TouchableOpacity
@@ -240,6 +442,235 @@ export default function LoginScreen() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </LinearGradient>
+
+      {/* Forgot Password Modal */}
+      <Modal
+        visible={showForgotPasswordModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={handleCloseForgotPassword}
+        statusBarTranslucent
+      >
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalKeyboardView}
+          >
+            <View style={styles.modalContainer}>
+              <View style={styles.modalContent}>
+                {/* Modal Header */}
+                <View style={styles.modalHeader}>
+                  <View style={styles.modalIconContainer}>
+                    <Key color="#FFFFFF" size={32} />
+                  </View>
+                  <Text style={styles.modalTitle}>
+                    {forgotPasswordStep === 1 ? 'Reset Password' : 'Verify & Reset'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={handleCloseForgotPassword}
+                    style={styles.closeButton}
+                    activeOpacity={0.7}
+                  >
+                    <X color="#6b7280" size={22} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {forgotPasswordStep === 1 ? (
+                    /* Step 1: Phone Number */
+                    <View style={styles.modalBody}>
+                      <Text style={styles.modalDescription}>
+                        Enter your registered phone number and we'll send you a 6-digit verification code to reset your password.
+                      </Text>
+
+                      {/* Phone Input */}
+                      <View style={styles.modalInputContainer}>
+                        <View style={[styles.inputWrapper, styles.modalInputWrapper]}>
+                          <View style={styles.inputIconContainer}>
+                            <Phone color="#6b7280" size={20} />
+                          </View>
+                          <View style={styles.countryCodeContainer}>
+                            <Text style={styles.countryCode}>+251</Text>
+                          </View>
+                          <TextInput
+                            style={[styles.input, styles.modalInput]}
+                            placeholder="911111111"
+                            placeholderTextColor="#9ca3af"
+                            value={resetPhone}
+                            onChangeText={(text) => {
+                              setResetPhone(text.replace(/[^0-9]/g, '').slice(0, 9));
+                            }}
+                            keyboardType="phone-pad"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            maxLength={9}
+                          />
+                        </View>
+                      </View>
+
+                      {/* Request OTP Button */}
+                      <TouchableOpacity
+                        style={styles.modalButton}
+                        onPress={handleRequestOTP}
+                        disabled={isResettingPassword}
+                      >
+                        <LinearGradient
+                          colors={['#667eea', '#764ba2']}
+                          style={styles.modalButtonGradient}
+                        >
+                          {isResettingPassword ? (
+                            <ActivityIndicator color="#FFFFFF" size="small" />
+                          ) : (
+                            <Text style={styles.modalButtonText}>Send OTP</Text>
+                          )}
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    /* Step 2: OTP & New Password */
+                    <View style={styles.modalBody}>
+                      <Text style={styles.modalDescription}>
+                        We've sent a verification code to +251{resetPhone}. Enter the code below and create a new password.
+                      </Text>
+
+                      {/* OTP Input */}
+                      <View style={styles.modalInputContainer}>
+                        <Text style={styles.inputLabel}>Verification Code</Text>
+                        <View style={[styles.inputWrapper, styles.modalInputWrapper]}>
+                          <View style={styles.inputIconContainer}>
+                            <Key color="#6b7280" size={20} />
+                          </View>
+                          <TextInput
+                            style={[styles.input, styles.modalInput]}
+                            placeholder="Enter 6-digit code"
+                            placeholderTextColor="#9ca3af"
+                            value={otp}
+                            onChangeText={(text) => {
+                              setOtp(text.replace(/[^0-9]/g, '').slice(0, 6));
+                            }}
+                            keyboardType="number-pad"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            maxLength={6}
+                          />
+                        </View>
+                      </View>
+
+                      {/* New Password Input */}
+                      <View style={styles.modalInputContainer}>
+                        <Text style={styles.inputLabel}>New Password</Text>
+                        <View style={[styles.inputWrapper, styles.modalInputWrapper]}>
+                          <View style={styles.inputIconContainer}>
+                            <Lock color="#6b7280" size={20} />
+                          </View>
+                          <TextInput
+                            style={[styles.input, styles.modalInput]}
+                            placeholder="Enter new password"
+                            placeholderTextColor="#9ca3af"
+                            value={newPassword}
+                            onChangeText={setNewPassword}
+                            secureTextEntry={!showNewPassword}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                          <TouchableOpacity
+                            onPress={() => setShowNewPassword(!showNewPassword)}
+                            style={styles.eyeIcon}
+                          >
+                            {showNewPassword ? (
+                              <EyeOff color="#6b7280" size={20} />
+                            ) : (
+                              <Eye color="#6b7280" size={20} />
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {/* Confirm Password Input */}
+                      <View style={styles.modalInputContainer}>
+                        <Text style={styles.inputLabel}>Confirm Password</Text>
+                        <View style={[styles.inputWrapper, styles.modalInputWrapper]}>
+                          <View style={styles.inputIconContainer}>
+                            <Lock color="#6b7280" size={20} />
+                          </View>
+                          <TextInput
+                            style={[styles.input, styles.modalInput]}
+                            placeholder="Confirm new password"
+                            placeholderTextColor="#9ca3af"
+                            value={confirmPassword}
+                            onChangeText={setConfirmPassword}
+                            secureTextEntry={!showConfirmPassword}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                          <TouchableOpacity
+                            onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                            style={styles.eyeIcon}
+                          >
+                            {showConfirmPassword ? (
+                              <EyeOff color="#6b7280" size={20} />
+                            ) : (
+                              <Eye color="#6b7280" size={20} />
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {/* Reset Password Button */}
+                      <TouchableOpacity
+                        style={styles.modalButton}
+                        onPress={handleResetPassword}
+                        disabled={isResettingPassword}
+                      >
+                        <LinearGradient
+                          colors={['#667eea', '#764ba2']}
+                          style={styles.modalButtonGradient}
+                        >
+                          {isResettingPassword ? (
+                            <ActivityIndicator color="#FFFFFF" size="small" />
+                          ) : (
+                            <Text style={styles.modalButtonText}>Reset Password</Text>
+                          )}
+                        </LinearGradient>
+                      </TouchableOpacity>
+
+                      {/* Back Button */}
+                      <TouchableOpacity
+                        onPress={() => setForgotPasswordStep(1)}
+                        style={styles.backButton}
+                      >
+                        <Text style={styles.backButtonText}>← Back to Phone Number</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Error/Success Messages */}
+                  {(resetError || resetSuccess) && (
+                    <View style={[
+                      styles.modalMessageBanner,
+                      resetError ? styles.errorBanner : styles.successBanner
+                    ]}>
+                      <View style={styles.messageIconContainer}>
+                        {resetError ? (
+                          <AlertCircle color="#ef4444" size={22} strokeWidth={2.5} />
+                        ) : (
+                          <CheckCircle color="#10b981" size={22} strokeWidth={2.5} />
+                        )}
+                      </View>
+                      <Text style={[
+                        styles.modalMessageText,
+                        resetError ? styles.errorText : styles.successText
+                      ]}>
+                        {resetError || resetSuccess}
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -433,13 +864,18 @@ const styles = StyleSheet.create({
     }),
   },
   successBanner: {
-    backgroundColor: 'rgba(16, 185, 129, 0.9)',
+    backgroundColor: '#d1fae5',
+    borderColor: '#10b981',
   },
   errorBanner: {
-    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    backgroundColor: '#fee2e2',
+    borderColor: '#ef4444',
   },
   messageIcon: {
     marginRight: 12,
+  },
+  messageIconContainer: {
+    marginTop: 2,
   },
   messageText: {
     flex: 1,
@@ -447,9 +883,201 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   successText: {
-    color: '#FFFFFF',
+    color: '#065f46',
   },
   errorText: {
+    color: '#991b1b',
+  },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  modalKeyboardView: {
+    width: '100%',
+    maxWidth: 480,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '100%',
+    maxHeight: '90%',
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 20 },
+        shadowOpacity: 0.25,
+        shadowRadius: 30,
+      },
+      android: {
+        elevation: 15,
+      },
+    }),
+  },
+  modalContent: {
+    paddingVertical: 24,
+    paddingHorizontal: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  modalIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#667eea',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+    letterSpacing: -0.5,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  modalBody: {
+    paddingTop: 8,
+    paddingBottom: 0,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 24,
+    lineHeight: 20,
+    textAlign: 'left',
+  },
+  modalInputContainer: {
+    marginBottom: 18,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  modalButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 20,
+    marginBottom: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#667eea',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
+  },
+  modalButtonGradient: {
+    height: 54,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
     color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  backButton: {
+    marginTop: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  backButtonText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  modalMessageBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 20,
+    marginBottom: 8,
+    borderWidth: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  modalMessageText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 10,
+    lineHeight: 20,
+  },
+  modalInput: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  modalInputWrapper: {
+    backgroundColor: '#f9fafb',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
   },
 });

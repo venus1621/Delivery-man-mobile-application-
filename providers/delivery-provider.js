@@ -15,6 +15,22 @@ import locationService from "../services/location-service";
 import { ref, update, push, set } from 'firebase/database';
 import { database } from '../firebase';
 
+// 💰 Helper function to extract number from various formats (including MongoDB Decimal128)
+const extractNumber = (value) => {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') return parseFloat(value) || 0;
+  if (typeof value === 'object' && value.$numberDecimal) {
+    return parseFloat(value.$numberDecimal) || 0;
+  }
+  return 0;
+};
+
+// 💵 Helper function to format currency safely
+const formatCurrency = (value) => {
+  const num = extractNumber(value);
+  return num.toFixed(2);
+};
 
 const DeliveryContext = createContext();
 export const useDelivery = () => useContext(DeliveryContext);
@@ -55,6 +71,7 @@ export const DeliveryProvider = ({ children }) => {
   const locationUpdateIntervalRef = useRef(null); // Ref for dynamic interval management
   const proximityNotifiedRef = useRef(new Set()); // Track which orders have been notified
   const soundObjectRef = useRef(null); // Ref for alarm sound object
+  const notificationSoundRef = useRef(null); // Ref for new order notification sound
   const vibrationIntervalRef = useRef(null); // Ref for continuous vibration
 
   // 📳 Start continuous vibration
@@ -125,6 +142,73 @@ export const DeliveryProvider = ({ children }) => {
     }
   }, [stopProximityAlarm, startContinuousVibration]);
 
+  // 🔔 Play new order notification sound
+  const playNewOrderNotification = useCallback(async () => {
+    try {
+      // Configure audio to play in silent mode
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: true,
+      });
+
+      // Stop any existing notification sound
+      if (notificationSoundRef.current) {
+        await notificationSoundRef.current.unloadAsync();
+        notificationSoundRef.current = null;
+      }
+
+      // Create notification sound - using a reliable notification tone
+      // Try multiple sound sources with fallback
+      const soundUrls = [
+        'https://cdn.pixabay.com/audio/2022/03/10/audio_c0856b19d7.mp3', // Pleasant notification
+        'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3', // Positive notification
+        'https://freesound.org/data/previews/320/320655_5260872-lq.mp3', // Simple bell
+      ];
+
+      let soundLoaded = false;
+      
+      for (const soundUrl of soundUrls) {
+        try {
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: soundUrl },
+            { 
+              shouldPlay: true,
+              isLooping: false, // Play once
+              volume: 1.0
+            }
+          );
+          
+          notificationSoundRef.current = sound;
+          soundLoaded = true;
+          console.log('🔔 Playing new order notification sound');
+          break; // Successfully loaded, exit loop
+        } catch (err) {
+          console.log(`⚠️ Failed to load sound from ${soundUrl}, trying next...`);
+          continue;
+        }
+      }
+
+      // Vibrate to get attention (short pattern)
+      Vibration.vibrate([0, 400, 200, 400]); // Two short bursts
+
+      // Unload sound after it finishes playing
+      if (soundLoaded) {
+        setTimeout(async () => {
+          if (notificationSoundRef.current) {
+            await notificationSoundRef.current.unloadAsync();
+            notificationSoundRef.current = null;
+          }
+        }, 3000);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error playing notification sound:', error);
+      // Fallback to vibration only
+      Vibration.vibrate([0, 400, 200, 400]);
+    }
+  }, []);
+
   // 📍 Initialize location tracking and audio
   useEffect(() => {
     const initializeLocationTracking = async () => {
@@ -173,6 +257,12 @@ export const DeliveryProvider = ({ children }) => {
       }
       // Stop alarm and vibration
       stopProximityAlarm();
+      
+      // Clean up notification sound
+      if (notificationSoundRef.current) {
+        notificationSoundRef.current.unloadAsync().catch(console.error);
+        notificationSoundRef.current = null;
+      }
     };
   }, [userId]);
 
@@ -244,7 +334,8 @@ export const DeliveryProvider = ({ children }) => {
   }, []);
 
 
-  // 📍 Send location updates every 3 seconds when connected
+  // 📍 Send location updates every 3 seconds - WORKS INDEPENDENTLY OF SOCKET STATUS
+  // Firebase location tracking works when there's an active order being delivered
   useEffect(() => {
     if (!userId || !state.isLocationTracking) {
       // Clear interval if not tracking
@@ -255,206 +346,190 @@ export const DeliveryProvider = ({ children }) => {
       return;
     }
 
-    // // Start interval to send location every 3 seconds
-    // locationIntervalRef.current = setInterval(() => {
-    //   const currentLocation = locationService.getCurrentLocation();
-    //   if (currentLocation) {
-    //     // Send to socket server if connected
-    //     if (socketRef.current && socketRef.current.connected) {
-    //       socketRef.current.emit('locationUpdate', {
-    //         userId,
-    //         location: {
-    //           userName: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
-    //           userPhone: user?.phone || 'N/A',
-    //           userDeliveryMethod: user?.deliveryMethod || 'N/A',
-    //           latitude: currentLocation.latitude,
-    //           longitude: currentLocation.longitude,
-    //           accuracy: currentLocation.accuracy,
-    //           timestamp: currentLocation.timestamp
-    //         }
-    //       });
-    //       console.log('📍 Location sent to server:', currentLocation);
-    //     }
+    // Start interval to send location every 3 seconds
+    locationIntervalRef.current = setInterval(() => {
+      const currentLocation = locationService.getCurrentLocation();
+      if (currentLocation) {
+        
+        // Check if activeOrder is an array (from dashboard) or single object (from state)
+        // Define this early so we can use it in multiple places
+        const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : 
+                             (state.activeOrder ? [state.activeOrder] : []);
 
-    //     // Check if activeOrder is an array (from dashboard) or single object (from state)
-    //     // Define this early so we can use it in multiple places
-    //     const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : 
-    //                          (state.activeOrder ? [state.activeOrder] : []);
+        // ALWAYS send to Firebase - direct delivery guy location tracking
+        const deliveryGuyRef = ref(database, `deliveryGuys/${userId}`);
+        const locationHistoryRef = ref(database, `deliveryGuys/${userId}/locationHistory`);
+        
+        // Update current location for delivery guy
+        const locationData = {
+          currentLocation: {
+            latitude: currentLocation.latitude,
+            longitude: currentLocation.longitude,
+            accuracy: currentLocation.accuracy,
+            timestamp: currentLocation.timestamp
+          },
+          lastLocationUpdate: new Date().toISOString(),
+          deliveryPerson: {
+            id: userId,
+            name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+            phone: user?.phone || 'N/A',
+            deliveryMethod: user?.deliveryMethod || 'N/A'
+          },
+          isOnline: state.isOnline,
+          isTracking: state.isLocationTracking,
+          activeOrderIds: activeOrders.map(o => o._id || o.id || o.orderId || o.orderCode).filter(Boolean),
+          status: activeOrders.length > 0 ? 'Delivering' : 'Available'
+        };
+        
+        // Add to location history
+        const historyEntry = {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          accuracy: currentLocation.accuracy,
+          timestamp: currentLocation.timestamp,
+          status: state.activeOrder?.status || 'Available',
+          recordedAt: new Date().toISOString(),
+          activeOrderId: state.activeOrder?.orderId || null
+        };
+        
+        // Update delivery guy data and add to history
+        Promise.all([
+          update(deliveryGuyRef, locationData),
+          push(locationHistoryRef, historyEntry)
+        ]).catch(error => {
+          console.error('❌ Error updating delivery guy location in Firebase:', error);
+        });
+        
+        console.log('🔥 Delivery guy location sent to Firebase:', userId);
+        
+        console.log('🔍 Active Orders Check:', {
+          hasActiveOrders: activeOrders.length > 0,
+          orderCount: activeOrders.length,
+          orderIds: activeOrders.map(o => o.orderId || o.orderCode)
+        });
 
-    //     // ALWAYS send to Firebase - direct delivery guy location tracking
-    //     const deliveryGuyRef = ref(database, `deliveryGuys/${userId}`);
-    //     const locationHistoryRef = ref(database, `deliveryGuys/${userId}/locationHistory`);
-        
-    //     // Update current location for delivery guy
-    //     const locationData = {
-    //       currentLocation: {
-    //         latitude: currentLocation.latitude,
-    //         longitude: currentLocation.longitude,
-    //         accuracy: currentLocation.accuracy,
-    //         timestamp: currentLocation.timestamp
-    //       },
-    //       lastLocationUpdate: new Date().toISOString(),
-    //       deliveryPerson: {
-    //         id: userId,
-    //         name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
-    //         phone: user?.phone || 'N/A',
-    //         deliveryMethod: user?.deliveryMethod || 'N/A'
-    //       },
-    //       isOnline: state.isOnline,
-    //       isTracking: state.isLocationTracking,
-    //       activeOrderIds: activeOrders.map(o => o._id || o.id || o.orderId || o.orderCode).filter(Boolean),
-    //       status: activeOrders.length > 0 ? 'Delivering' : 'Available'
-    //     };
-        
-    //     // Add to location history
-    //     const historyEntry = {
-    //       latitude: currentLocation.latitude,
-    //       longitude: currentLocation.longitude,
-    //       accuracy: currentLocation.accuracy,
-    //       timestamp: currentLocation.timestamp,
-    //       status: state.activeOrder?.status || 'Available',
-    //       recordedAt: new Date().toISOString(),
-    //       activeOrderId: state.activeOrder?.orderId || null
-    //     };
-        
-    //     // Update delivery guy data and add to history
-    //     Promise.all([
-    //       update(deliveryGuyRef, locationData),
-    //       push(locationHistoryRef, historyEntry)
-    //     ]).catch(error => {
-    //       console.error('❌ Error updating delivery guy location in Firebase:', error);
-    //     });
-        
-    //     console.log('🔥 Delivery guy location sent to Firebase:', userId);
-        
-    //     console.log('🔍 Active Orders Check:', {
-    //       hasActiveOrders: activeOrders.length > 0,
-    //       orderCount: activeOrders.length,
-    //       orderIds: activeOrders.map(o => o.orderId || o.orderCode)
-    //     });
-
-    //     // SEND TO ORDER-SPECIFIC FIREBASE PATH (for customer tracking)
-    //     // Handle both single order and multiple orders (dashboard display)
-    //     if (activeOrders.length > 0) {
-    //       console.log(`📦 Sending location to ${activeOrders.length} active order(s)`);
+        // SEND TO ORDER-SPECIFIC FIREBASE PATH (for customer tracking)
+        // This works INDEPENDENTLY of socket status - if there's an active order, send location
+        if (activeOrders.length > 0) {
+          console.log(`📦 Sending location to ${activeOrders.length} active order(s) - Independent of socket status`);
           
-    //       // Send location for each active order
-    //       const locationUpdatePromises = activeOrders.map(async (order) => {
-    //         // Log available order fields to debug
-    //         console.log('🔍 Order fields available:', {
-    //           _id: order._id,
-    //           id: order.id,
-    //           orderId: order.orderId,
-    //           orderCode: order.orderCode,
-    //           allKeys: Object.keys(order)
-    //         });
+          // Send location for each active order
+          const locationUpdatePromises = activeOrders.map(async (order) => {
+            // Log available order fields to debug
+            console.log('🔍 Order fields available:', {
+              _id: order._id,
+              id: order.id,
+              orderId: order.orderId,
+              orderCode: order.orderCode,
+              allKeys: Object.keys(order)
+            });
             
-    //         // Priority: Use MongoDB _id first (for customer app compatibility)
-    //         // The API might return the MongoDB ID in different fields
-    //         const mongoId = order._id || order.id;
-    //         const orderId = mongoId || order.orderId || order.orderCode;
+            // Priority: Use MongoDB _id first (for customer app compatibility)
+            // The API might return the MongoDB ID in different fields
+            const mongoId = order._id || order.id;
+            const orderId = mongoId || order.orderId || order.orderCode;
             
-    //         if (!orderId) {
-    //           console.warn('⚠️ Order missing _id, id, orderId and orderCode:', order);
-    //           return;
-    //         }
+            if (!orderId) {
+              console.warn('⚠️ Order missing _id, id, orderId and orderCode:', order);
+              return;
+            }
             
-    //         console.log('📍 Using Firebase path for order:', orderId);
-    //         console.log('📦 Order Code:', order.orderCode || 'N/A');
+            console.log('📍 Using Firebase path for order:', orderId);
+            console.log('📦 Order Code:', order.orderCode || 'N/A');
             
-    //         const orderRef = ref(database, `deliveryOrders/${orderId}`);
-    //         const orderLocationHistoryRef = ref(database, `deliveryOrders/${orderId}/locationHistory`);
+            const orderRef = ref(database, `deliveryOrders/${orderId}`);
+            const orderLocationHistoryRef = ref(database, `deliveryOrders/${orderId}/locationHistory`);
             
-    //         // Update current location for specific order
-    //         // Only include fields that are defined (Firebase doesn't accept undefined)
-    //         const orderLocationData = {
-    //           orderId: orderId,
-    //           orderCode: order.orderCode || `ORD-${orderId.slice(-6)}`,
-    //           deliveryLocation: {
-    //             latitude: currentLocation.latitude,
-    //             longitude: currentLocation.longitude,
-    //             accuracy: currentLocation.accuracy,
-    //             timestamp: currentLocation.timestamp
-    //           },
-    //           lastLocationUpdate: new Date().toISOString(),
-    //           deliveryPerson: {
-    //             id: userId,
-    //             name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
-    //             phone: user?.phone || 'N/A',
-    //             deliveryMethod: user?.deliveryMethod || 'N/A'
-    //           },
-    //           status: order.orderStatus || order.status || 'Delivering',
-    //           orderStatus: order.orderStatus || 'Delivering',
-    //           trackingEnabled: true,
-    //           deliveryFee: order.deliveryFee || 0,
-    //           tip: order.tip || 0,
-    //         };
+            // Update current location for specific order
+            // Only include fields that are defined (Firebase doesn't accept undefined)
+            const orderLocationData = {
+              orderId: orderId,
+              orderCode: order.orderCode || `ORD-${orderId.slice(-6)}`,
+              deliveryLocation: {
+                latitude: currentLocation.latitude,
+                longitude: currentLocation.longitude,
+                accuracy: currentLocation.accuracy,
+                timestamp: currentLocation.timestamp
+              },
+              lastLocationUpdate: new Date().toISOString(),
+              deliveryPerson: {
+                id: userId,
+                name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+                phone: user?.phone || 'N/A',
+                deliveryMethod: user?.deliveryMethod || 'N/A'
+              },
+              status: order.orderStatus || order.status || 'Delivering',
+              orderStatus: order.orderStatus || 'Delivering',
+              trackingEnabled: true,
+              deliveryFee: order.deliveryFee || 0,
+              tip: order.tip || 0,
+            };
             
-    //         // Add optional fields only if they exist
-    //         if (order.restaurantName) {
-    //           orderLocationData.restaurantName = order.restaurantName;
-    //         }
-    //         if (order.restaurantLocation) {
-    //           orderLocationData.restaurantLocation = order.restaurantLocation;
-    //         }
-    //         if (order.destinationLocation) {
-    //           orderLocationData.customerLocation = order.destinationLocation;
-    //         } else if (order.deliveryLocation) {
-    //           orderLocationData.customerLocation = order.deliveryLocation;
-    //         } else if (order.deliverLocation) {
-    //           orderLocationData.customerLocation = order.deliverLocation;
-    //         }
-    //         if (order.pickUpVerificationCode) {
-    //           orderLocationData.pickUpVerificationCode = order.pickUpVerificationCode;
-    //         }
-    //         if (order.userName) {
-    //           orderLocationData.customerName = order.userName;
-    //         }
-    //         if (order.phone) {
-    //           orderLocationData.customerPhone = order.phone;
-    //         }
-    //         if (order.description) {
-    //           orderLocationData.description = order.description;
-    //         }
+            // Add optional fields only if they exist
+            if (order.restaurantName) {
+              orderLocationData.restaurantName = order.restaurantName;
+            }
+            if (order.restaurantLocation) {
+              orderLocationData.restaurantLocation = order.restaurantLocation;
+            }
+            if (order.destinationLocation) {
+              orderLocationData.customerLocation = order.destinationLocation;
+            } else if (order.deliveryLocation) {
+              orderLocationData.customerLocation = order.deliveryLocation;
+            } else if (order.deliverLocation) {
+              orderLocationData.customerLocation = order.deliverLocation;
+            }
+            if (order.pickUpVerificationCode) {
+              orderLocationData.pickUpVerificationCode = order.pickUpVerificationCode;
+            }
+            if (order.userName) {
+              orderLocationData.customerName = order.userName;
+            }
+            if (order.phone) {
+              orderLocationData.customerPhone = order.phone;
+            }
+            if (order.description) {
+              orderLocationData.description = order.description;
+            }
             
-    //         // Add to order-specific location history
-    //         const orderHistoryEntry = {
-    //           latitude: currentLocation.latitude,
-    //           longitude: currentLocation.longitude,
-    //           accuracy: currentLocation.accuracy,
-    //           timestamp: currentLocation.timestamp,
-    //           status: order.orderStatus || order.status || 'Delivering',
-    //           recordedAt: new Date().toISOString()
-    //         };
+            // Add to order-specific location history
+            const orderHistoryEntry = {
+              latitude: currentLocation.latitude,
+              longitude: currentLocation.longitude,
+              accuracy: currentLocation.accuracy,
+              timestamp: currentLocation.timestamp,
+              status: order.orderStatus || order.status || 'Delivering',
+              recordedAt: new Date().toISOString()
+            };
             
-    //         // Update order data and add to history
-    //         try {
-    //           await Promise.all([
-    //             update(orderRef, orderLocationData),
-    //             push(orderLocationHistoryRef, orderHistoryEntry)
-    //           ]);
-    //           console.log('✅ Order location updated successfully:', orderId);
-    //           console.log('📍 Firebase Path: deliveryOrders/' + orderId);
+            // Update order data and add to history
+            try {
+              await Promise.all([
+                update(orderRef, orderLocationData),
+                push(orderLocationHistoryRef, orderHistoryEntry)
+              ]);
+              console.log('✅ Order location updated successfully:', orderId);
+              console.log('📍 Firebase Path: deliveryOrders/' + orderId);
               
-    //           // Check proximity to destination and trigger alarm if close
-    //           await checkProximityAndAlert(order, currentLocation, orderId);
-    //         } catch (error) {
-    //           console.error('❌ Error updating order location:', orderId, error.message);
-    //         }
-    //       });
+              // Check proximity to destination and trigger alarm if close
+              await checkProximityAndAlert(order, currentLocation, orderId);
+            } catch (error) {
+              console.error('❌ Error updating order location:', orderId, error.message);
+            }
+          });
           
-    //       // Wait for all updates to complete
-    //       Promise.all(locationUpdatePromises).then(() => {
-    //         console.log(`🔥 Location sent to Firebase for ${activeOrders.length} order(s)`);
-    //       }).catch(error => {
-    //         console.error('❌ Error in batch location update:', error);
-    //       });
+          // Wait for all updates to complete
+          Promise.all(locationUpdatePromises).then(() => {
+            console.log(`🔥 Location sent to Firebase for ${activeOrders.length} order(s)`);
+          }).catch(error => {
+            console.error('❌ Error in batch location update:', error);
+          });
           
-    //     } else {
-    //       console.log('⚠️ No active orders - order tracking not sent');
-    //     }
-    //   }
-    // }, 3000); // Every 3 seconds
+        } else {
+          console.log('⚠️ No active orders - order tracking not sent');
+        }
+      }
+    }, 3000); // Every 3 seconds
 
     // Cleanup interval on unmount or dependency change
     return () => {
@@ -463,12 +538,13 @@ export const DeliveryProvider = ({ children }) => {
         locationIntervalRef.current = null;
       }
     };
-  }, [userId, state.isLocationTracking, state.isOnline, state.activeOrder]);
+  }, [userId, state.isLocationTracking, state.isOnline, state.activeOrder, user, checkProximityAndAlert]);
 
   // 🔌 Connect to socket server with authentication
+  // Socket connects ONLY when user is ONLINE
   useEffect(() => {
     if (!token || !userId) {
-      console.log("❌ No token or userId available for socket connection");
+      console.log("🔌 Socket connection skipped - user not authenticated");
       // Clear socket connection if no token/userId
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -478,6 +554,20 @@ export const DeliveryProvider = ({ children }) => {
       return;
     }
 
+    // Check if user is online - only connect when online
+    if (!state.isOnline) {
+      console.log("🔌 Socket connection skipped - user is OFFLINE");
+      // Disconnect socket if user goes offline
+      if (socketRef.current) {
+        console.log("📴 Disconnecting socket - user went offline");
+        socketRef.current.disconnect();
+        socketRef.current = null;
+        setState((prev) => ({ ...prev, isConnected: false, socket: null }));
+      }
+      return;
+    }
+
+    console.log("🔌 Connecting to socket server - user is ONLINE");
     const socket = io("https://gebeta-delivery1.onrender.com", {
       transports: ["websocket"],
       auth: {
@@ -526,7 +616,14 @@ export const DeliveryProvider = ({ children }) => {
       console.log("📍 Restaurant Location:", orderData.restaurantLocation);
       console.log("📍 Delivery Location:", orderData.deliveryLocation);
       
+      // Play notification sound and vibrate
+      playNewOrderNotification();
+      
       // Transform the order data to match our expected format
+      // Extract MongoDB Decimal128 values
+      const deliveryFee = extractNumber(orderData.deliveryFee);
+      const tip = extractNumber(orderData.tip);
+      
       const transformedOrder = {
         orderId: orderData.orderId,
         order_id: orderData.orderCode, // Map orderCode to order_id for consistency
@@ -542,9 +639,9 @@ export const DeliveryProvider = ({ children }) => {
           lng: orderData.deliveryLocation?.lng || 0,
           address: orderData.deliveryLocation?.address || 'Delivery Location',
         },
-        deliveryFee: orderData.deliveryFee || 0,
-        tip: orderData.tip || 0,
-        grandTotal: (orderData.deliveryFee || 0) + (orderData.tip || 0),
+        deliveryFee: deliveryFee,
+        tip: tip,
+        grandTotal: deliveryFee + tip,
         createdAt: orderData.createdAt || new Date().toISOString(),
         customer: {
           name: 'Customer',
@@ -580,12 +677,23 @@ export const DeliveryProvider = ({ children }) => {
     // 🍲 New cooked orders (from backend updateOrderStatus)
     socket.on("order:cooked", (order) => {
       console.log("🍲 Cooked order available:", order);
+      
+      // Play notification sound and vibrate
+      playNewOrderNotification();
+      
+      // Normalize order data to handle MongoDB Decimal128
+      const normalizedOrder = {
+        ...order,
+        deliveryFee: extractNumber(order.deliveryFee),
+        tip: extractNumber(order.tip),
+      };
+      
       setState((prev) => ({
         ...prev,
-        availableOrders: [...prev.availableOrders, order],
+        availableOrders: [...prev.availableOrders, normalizedOrder],
         availableOrdersCount: prev.availableOrdersCount + 1,
         // Automatically show the order modal for new orders
-        pendingOrderPopup: order,
+        pendingOrderPopup: normalizedOrder,
         showOrderModal: true,
         newOrderNotification: true, // Set notification flag
       }));
@@ -625,11 +733,14 @@ export const DeliveryProvider = ({ children }) => {
       socket.off("disconnect");
       socket.disconnect();
     };
-  }, [token, userId]);
+  }, [token, userId, state.isOnline, playNewOrderNotification]);
 
   // Note: persistent local storage for accepted orders has been removed.
 
-// ...existing code...
+// ✅ API FUNCTIONS BELOW WORK INDEPENDENTLY OF SOCKET/ONLINE STATUS
+// These functions use direct HTTP calls and work whether you're online or offline
+
+// 📦 Fetch active orders - WORKS WITHOUT SOCKET CONNECTION
 const fetchActiveOrder = useCallback(
   async (status) => {
     if (!status || !token) return;
@@ -647,24 +758,42 @@ const fetchActiveOrder = useCallback(
       const data = await response.json();
 console.log(data)
       if (response.ok && data.status === "success") {
+        // Normalize active order data to handle MongoDB Decimal128
+        const normalizedActiveOrders = Array.isArray(data.data) 
+          ? data.data.map(order => ({
+              ...order,
+              deliveryFee: extractNumber(order.deliveryFee),
+              tip: extractNumber(order.tip),
+            }))
+          : [];
+        
         setState(prev => ({
           ...prev,
           isLoadingActiveOrder: false,
-          activeOrder: data.data || [],
+          activeOrder: normalizedActiveOrders,
         }));
       } else {
+        // Display server error message
+        const serverMessage = data.message || data.error || 
+                             (data.errors && data.errors[0]?.msg) || 
+                             "Failed to fetch orders";
         setState(prev => ({
           ...prev,
           isLoadingActiveOrder: false,
-          activeOrderError: data.message || "Failed to fetch orders",
+          activeOrderError: serverMessage,
         }));
       }
 
     } catch (error) {
+      // Check if it's a network error or something else
+      const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+        ? "Unable to connect to server. Please check your internet connection."
+        : "Something went wrong. Please try again later.";
+      
       setState(prev => ({
         ...prev,
         isLoadingActiveOrder: false,
-        activeOrderError: "Network error",
+        activeOrderError: errorMessage,
       }));
     }
   },
@@ -672,6 +801,7 @@ console.log(data)
 );
 
 
+// 📋 Fetch available orders - WORKS WITHOUT SOCKET CONNECTION
 const fetchAvailableOrders = useCallback(async () => {
   if (!token) {
     setState((prev) => ({
@@ -726,28 +856,38 @@ const fetchAvailableOrders = useCallback(async () => {
       }));
 
        } else {
+      // Display server error message
+      const serverMessage = data.message || data.error || 
+                           (data.errors && data.errors[0]?.msg) || 
+                           "Failed to fetch available orders";
       setState((prev) => ({
         ...prev,
         isLoadingOrders: false,
-        ordersError: data.message || "Failed to fetch available orders.",
+        ordersError: serverMessage,
       }));
     }
   } catch (error) {
+    // Check if it's a network error or something else
+    const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+      ? "Unable to connect to server. Please check your internet connection."
+      : "Something went wrong. Please try again later.";
+    
     setState((prev) => ({
       ...prev,
       isLoadingOrders: false,
-      ordersError: error.message || "An unexpected error occurred.",
+      ordersError: errorMessage,
     }));
   }
 }, [token]);
+  // 📦 Accept order function - REQUIRES SOCKET CONNECTION (only works when ONLINE)
   const acceptOrder = useCallback(async (orderId, deliveryPersonId) => {
     if (!socketRef.current) {
-      Alert.alert("Error", "Not connected to server");
+      Alert.alert("Error", "Not connected to server. Please go ONLINE to accept orders.");
       return false;
     }
 
     if (!socketRef.current.connected) {
-      Alert.alert("Error", "Socket not connected to server");
+      Alert.alert("Error", "Socket not connected to server. Please go ONLINE to accept orders.");
       return false;
     }
 
@@ -782,8 +922,8 @@ const fetchAvailableOrders = useCallback(async () => {
               // Additional order details from server
               restaurantLocation: response.data?.restaurantLocation,
               deliveryLocation: response.data?.deliverLocation, // Note: server uses 'deliverLocation'
-              deliveryFee: response.data?.deliveryFee || 0,
-              tip: response.data?.tip || 0,
+              deliveryFee: extractNumber(response.data?.deliveryFee),
+              tip: extractNumber(response.data?.tip),
               distanceKm: response.data?.distanceKm || 0,
               description: response.data?.description || '',
               status: response.data?.status || 'Accepted',
@@ -796,8 +936,8 @@ const fetchAvailableOrders = useCallback(async () => {
           deliveryVerificationCode: response.data?.pickUpVerification || 'N/A',
           restaurantLocation: response.data?.restaurantLocation,
           deliveryLocation: response.data?.deliverLocation,
-          deliveryFee: response.data?.deliveryFee || 0,
-          tip: response.data?.tip || 0,
+          deliveryFee: extractNumber(response.data?.deliveryFee),
+          tip: extractNumber(response.data?.tip),
           distanceKm: response.data?.distanceKm || 0,
           description: response.data?.description || '',
           status: response.data?.status || 'Accepted',
@@ -820,12 +960,14 @@ const fetchAvailableOrders = useCallback(async () => {
           console.error('❌ Error initializing Firebase tracking:', error);
         });
       
-            // Calculate total earnings
-            const totalEarnings = (response.data?.deliveryFee || 0) + (response.data?.tip || 0);
+            // Calculate total earnings (handle MongoDB Decimal128 format)
+            const deliveryFee = extractNumber(response.data?.deliveryFee);
+            const tip = extractNumber(response.data?.tip);
+            const totalEarnings = deliveryFee + tip;
 
         Alert.alert(
           "🎉 Order Accepted Successfully!",
-              `✅ ${response.message || 'Order accepted successfully'}\n\n📦 Order Code: ${response.data?.orderCode || 'N/A'}\n🔑 Pickup Code: ${response.data?.pickUpVerification || 'N/A'}\n💰 Total Earnings: ETB ${totalEarnings.toFixed(2)}\n📏 Distance: ${response.data?.distanceKm || 0} km\n\n💡 Please proceed to the restaurant to collect your order.`,
+              `✅ ${response.message || 'Order accepted successfully'}\n\n📦 Order Code: ${response.data?.orderCode || 'N/A'}\n🔑 Pickup Code: ${response.data?.pickUpVerification || 'N/A'}\n💰 Total Earnings: ETB ${formatCurrency(totalEarnings)}\n📏 Distance: ${response.data?.distanceKm || 0} km\n\n💡 Please proceed to the restaurant to collect your order.`,
           [
             { 
               text: 'Got it!', 
@@ -836,9 +978,7 @@ const fetchAvailableOrders = useCallback(async () => {
         );
         
             resolve(true);
-      } else {
-            console.error("❌ Failed to accept order:", response);
-            
+      } else {            
             // Handle error response from socket (matches server error format)
             const errorMessage = response.message || 'Failed to accept order';
             
@@ -993,6 +1133,15 @@ const fetchAvailableOrders = useCallback(async () => {
         locationUpdateIntervalRef.current = null;
       }
       
+      // Stop proximity alarm and vibration
+      await stopProximityAlarm();
+      
+      // Clean up notification sound
+      if (notificationSoundRef.current) {
+        await notificationSoundRef.current.unloadAsync();
+        notificationSoundRef.current = null;
+      }
+      
       // Clear stored order data
       // persistent storage for orders removed; nothing to clear
       
@@ -1083,19 +1232,22 @@ const fetchAvailableOrders = useCallback(async () => {
 
  
 
-  // 📊 Fetch delivery person order history
+  // 📊 Fetch delivery person order history - WORKS WITHOUT SOCKET CONNECTION
 const fetchDeliveryHistory = useCallback(async () => {
-  console.log("Fetching completed delivery history...");
-
   if (!token) {
-    console.error("No authentication token available");
+    // Silently return if no token (user not logged in or logged out)
+    console.log("📊 Skipping delivery history fetch - no authentication token");
     setState((prev) => ({
       ...prev,
       isLoadingHistory: false,
-      historyError: "Authentication required. Please log in again.",
+      deliveryHistory: [],
+      orderHistory: [],
+      historyError: null, // Don't show error when not authenticated
     }));
     return;
   }
+
+  console.log("📊 Fetching completed delivery history...");
 
   try {
     setState((prev) => ({
@@ -1132,15 +1284,22 @@ const fetchDeliveryHistory = useCallback(async () => {
           return null;
         }
 
+        // Extract numbers from MongoDB Decimal128 format
+        const deliveryFee = extractNumber(order.deliveryFee);
+        const tip = extractNumber(order.tip);
+        const totalEarnings = deliveryFee + tip;
+
         return {
           id: order._id || order.id,
           restaurantName: order.restaurantName || "Unknown Restaurant",
-          deliveryFee: order.deliveryFee ?? 0,
-          tip: order.tip ?? 0,
-          totalEarnings: (order.deliveryFee ?? 0) + (order.tip ?? 0),
+          deliveryFee: deliveryFee,
+          tip: tip,
+          totalEarnings: totalEarnings,
+          grandTotal: totalEarnings, // For compatibility with dashboard
           orderStatus: order.orderStatus || "",
           orderCode: order.orderCode || "",
           updatedAt: order.updatedAt ? new Date(order.updatedAt).toISOString() : null,
+          createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null,
         };
       })
       .filter(Boolean); // Remove any nulls
@@ -1149,6 +1308,7 @@ const fetchDeliveryHistory = useCallback(async () => {
       ...prev,
       isLoadingHistory: false,
       deliveryHistory: normalizedHistory,
+      orderHistory: normalizedHistory, // Also store as orderHistory for dashboard compatibility
      
     }));
 
@@ -1169,7 +1329,7 @@ const fetchDeliveryHistory = useCallback(async () => {
 
 
 
-  // ✅ Verify delivery function
+  // ✅ Verify delivery function - WORKS WITHOUT SOCKET CONNECTION
   const verifyDelivery = useCallback(async (orderId, verificationCode) => {
     if (!token) {
       Alert.alert("Error", "Authentication required. Please log in again.");
@@ -1225,8 +1385,15 @@ const fetchDeliveryHistory = useCallback(async () => {
       Alert.alert("❌ Verification Failed", errorMessage);
       return { success: false, error: errorMessage };
     } catch (error) {
-      Alert.alert("🌐 Network Error", "Check your connection and try again.");
-      return { success: false };
+      console.error('❌ Error verifying delivery:', error);
+      
+      // Check if it's a network error or something else
+      const errorMessage = error.message === 'Failed to fetch' || error.message.includes('Network request failed')
+        ? "Unable to connect to server. Please check your internet connection and try again."
+        : "Something went wrong. Please try again later.";
+      
+      Alert.alert("Error", errorMessage);
+      return { success: false, error: errorMessage };
     }
   }, [token]);
   

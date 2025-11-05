@@ -46,6 +46,7 @@ export default function DashboardScreen() {
     newOrderNotification,
     acceptedOrder,
     fetchAvailableOrders,
+    fetchDeliveryHistory,
   } = useDelivery();
 
   const { user } = useAuth();
@@ -55,16 +56,24 @@ export default function DashboardScreen() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [orderIdToVerify, setOrderIdToVerify] = useState(null);
 
-  // Refresh data
+  // 🔄 Refresh data - These API calls work INDEPENDENTLY of socket connection
+  // You can refresh data even when offline (if internet is available)
   const onRefresh = async () => {
     setRefreshing(true);
-    if (isOnline) {
-      await fetchAvailableOrders();
-      await fetchActiveOrder("Cooked");
-      await fetchActiveOrder('Delivering');
-    }
+    // Note: These work regardless of isOnline status (only need internet)
+    await Promise.all([
+      fetchAvailableOrders(),
+      fetchActiveOrder("Cooked"),
+      fetchActiveOrder('Delivering'),
+      fetchDeliveryHistory(),
+    ]);
     setRefreshing(false);
   };
+
+  // Fetch delivery history on mount to ensure we have earnings data
+  useEffect(() => {
+    fetchDeliveryHistory();
+  }, [fetchDeliveryHistory]);
 
   // Fetch orders and active order when going online
   useEffect(() => {
@@ -72,8 +81,9 @@ export default function DashboardScreen() {
       fetchAvailableOrders();
       fetchActiveOrder("Cooked");
       fetchActiveOrder('Delivering');
+      fetchDeliveryHistory();
     }
-  }, [isOnline, fetchAvailableOrders, fetchActiveOrder]);
+  }, [isOnline, fetchAvailableOrders, fetchActiveOrder, fetchDeliveryHistory]);
 
   // Handle complete order with verification
   const handleCompleteOrder = () => {
@@ -95,7 +105,11 @@ export default function DashboardScreen() {
       if (result.success) {
         setShowVerificationModal(false);
         setOrderIdToVerify(null);
-        await fetchActiveOrder("Cooked");
+        // Refresh both active orders and delivery history to update earnings
+        await Promise.all([
+          fetchActiveOrder("Cooked"),
+          fetchDeliveryHistory(),
+        ]);
       }
     } catch (error) {
       console.error('Error verifying delivery:', error);
@@ -111,22 +125,46 @@ export default function DashboardScreen() {
   };
 
   // Calculate today's earnings and deliveries
-  const todayEarnings = orderHistory
-    .filter(order => {
-      const today = new Date().toDateString();
-      const orderDate = new Date(order.createdAt).toDateString();
-      return orderDate === today;
-    })
-    .reduce((sum, order) => sum + order.grandTotal, 0);
+  const calculateTodayStats = () => {
+    if (!orderHistory || orderHistory.length === 0) {
+      return {
+        earnings: 0,
+        deliveries: 0,
+        totalEarnings: 0,
+      };
+    }
 
-  const todayDeliveries = orderHistory.filter(order => {
-    const today = new Date().toDateString();
-    const orderDate = new Date(order.createdAt).toDateString();
-    return orderDate === today;
-  }).length;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const todayOrders = orderHistory.filter(order => {
+      // Use updatedAt for completed deliveries (when they were actually completed)
+      const orderDate = new Date(order.updatedAt || order.createdAt);
+      orderDate.setHours(0, 0, 0, 0);
+      return orderDate.getTime() === today.getTime();
+    });
 
-  // Calculate total earnings (all time)
-  const totalEarnings = orderHistory.reduce((sum, order) => sum + order.grandTotal, 0);
+    const todayEarnings = todayOrders.reduce((sum, order) => {
+      const earnings = order.grandTotal || order.totalEarnings || (order.deliveryFee + order.tip) || 0;
+      return sum + earnings;
+    }, 0);
+
+    const totalEarnings = orderHistory.reduce((sum, order) => {
+      const earnings = order.grandTotal || order.totalEarnings || (order.deliveryFee + order.tip) || 0;
+      return sum + earnings;
+    }, 0);
+
+    return {
+      earnings: todayEarnings,
+      deliveries: todayOrders.length,
+      totalEarnings: totalEarnings,
+    };
+  };
+
+  const todayStats = calculateTodayStats();
+  const todayEarnings = todayStats.earnings;
+  const todayDeliveries = todayStats.deliveries;
+  const totalEarnings = todayStats.totalEarnings;
 
   // Get user's first name for greeting
   const getUserFirstName = () => {
@@ -242,8 +280,13 @@ export default function DashboardScreen() {
             <View style={styles.statIcon}>
               <DollarSign color="#FFFFFF" size={24} />
             </View>
-            <Text style={styles.statNumber}>ETB {(todayEarnings || 0).toFixed(0)}</Text>
+            <Text style={styles.statNumber}>
+              ETB {(todayEarnings || 0).toFixed(2)}
+            </Text>
             <Text style={styles.statLabel}>Today's Earnings</Text>
+            {orderHistory && orderHistory.length > 0 && (
+              <Text style={styles.statHint}>From completed orders</Text>
+            )}
           </LinearGradient>
 
           <LinearGradient
@@ -255,6 +298,11 @@ export default function DashboardScreen() {
             </View>
             <Text style={styles.statNumber}>{todayDeliveries}</Text>
             <Text style={styles.statLabel}>Today's Deliveries</Text>
+            {todayDeliveries > 0 && todayEarnings > 0 && (
+              <Text style={styles.statHint}>
+                Avg: ETB {(todayEarnings / todayDeliveries).toFixed(2)}
+              </Text>
+            )}
           </LinearGradient>
         </View>
 
@@ -268,8 +316,14 @@ export default function DashboardScreen() {
               <Award color="#FFFFFF" size={28} />
               <Text style={styles.totalEarningsTitle}>Total Earnings</Text>
             </View>
-            <Text style={styles.totalEarningsAmount}>ETB {(totalEarnings || 0).toFixed(0)}</Text>
-            <Text style={styles.totalEarningsSubtitle}>All time delivery earnings</Text>
+            <Text style={styles.totalEarningsAmount}>
+              ETB {(totalEarnings || 0).toFixed(2)}
+            </Text>
+            <Text style={styles.totalEarningsSubtitle}>
+              {orderHistory && orderHistory.length > 0 
+                ? `From ${orderHistory.length} completed ${orderHistory.length === 1 ? 'delivery' : 'deliveries'}`
+                : 'All time delivery earnings'}
+            </Text>
           </LinearGradient>
         </View>
 
@@ -331,7 +385,7 @@ export default function DashboardScreen() {
           <View style={styles.quickActions}>
             <TouchableOpacity 
               style={styles.quickActionButton}
-              onPress={() => router.push('/orders')}
+              onPress={() => router.push('/tabs/orders')}
             >
               <View style={styles.quickActionIcon}>
                 <MapPin color="#3B82F6" size={28} />
@@ -342,7 +396,7 @@ export default function DashboardScreen() {
             
             <TouchableOpacity 
               style={styles.quickActionButton}
-              onPress={() => router.push('/history')}
+              onPress={() => router.push('/tabs/history')}
             >
               <View style={styles.quickActionIcon}>
                 <Clock color="#3B82F6" size={28} />
@@ -355,7 +409,7 @@ export default function DashboardScreen() {
           <View style={styles.quickActions}>
             <TouchableOpacity 
               style={styles.quickActionButton}
-              onPress={() => router.push('/profile')}
+              onPress={() => router.push('/tabs/profile')}
             >
               <View style={styles.quickActionIcon}>
                 <User color="#3B82F6" size={28} />
@@ -399,6 +453,16 @@ export default function DashboardScreen() {
             <Text style={styles.noOrdersTitle}>No Active Deliveries</Text>
             <Text style={styles.noOrdersText}>
               You're online and ready to accept orders. New delivery requests will appear here automatically.
+            </Text>
+          </View>
+        )}
+
+        {/* No Earnings Yet Message */}
+        {(!orderHistory || orderHistory.length === 0) && (
+          <View style={styles.tipsContainer}>
+            <Text style={styles.tipsTitle}>🎯 Start Earning Today!</Text>
+            <Text style={styles.tipsText}>
+              Complete your first delivery to start building your earnings history. Your stats will be updated in real-time!
             </Text>
           </View>
         )}
@@ -563,6 +627,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     opacity: 0.9,
     textAlign: 'center',
+  },
+  statHint: {
+    fontSize: 10,
+    color: '#FFFFFF',
+    opacity: 0.75,
+    textAlign: 'center',
+    marginTop: 4,
   },
   totalEarningsContainer: {
     paddingHorizontal: 20,

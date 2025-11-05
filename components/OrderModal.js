@@ -30,7 +30,7 @@ export default function OrderModal({
   onClose 
 }) {
   const { userId } = useAuth();
-  const { acceptOrder } = useDelivery();
+  const { acceptOrder, isOnline, isConnected } = useDelivery();
   const [acceptingOrder, setAcceptingOrder] = useState(false);
 
   // Early return if no order data
@@ -42,11 +42,47 @@ export default function OrderModal({
   useEffect(() => {
     if (order && visible) {
       console.log("📦 OrderModal received order:", order);
+      console.log("📊 Raw financials - deliveryFee:", order.deliveryFee, "tip:", order.tip, "grandTotal:", order.grandTotal);
     }
   }, [order, visible]);
 
   if (!order) return null;
 
+  // Helper function to extract number from MongoDB Decimal128 format
+  const extractNumber = (value) => {
+    if (!value) return 0;
+    
+    // If it's already a number
+    if (typeof value === 'number') return value;
+    
+    // If it's a string
+    if (typeof value === 'string') return parseFloat(value) || 0;
+    
+    // If it's a MongoDB Decimal128 object with $numberDecimal
+    if (value.$numberDecimal) {
+      return parseFloat(value.$numberDecimal) || 0;
+    }
+    
+    // Try to convert to number
+    const num = Number(value);
+    return isNaN(num) ? 0 : num;
+  };
+
+  // Extract numeric values from order
+  const deliveryFee = extractNumber(order.deliveryFee);
+  const tip = extractNumber(order.tip);
+  const grandTotal = extractNumber(order.grandTotal) || (deliveryFee + tip);
+  
+  // Log extracted values
+  console.log("💰 Extracted values - deliveryFee:", deliveryFee, "tip:", tip, "grandTotal:", grandTotal);
+  
+  // Format currency safely
+  const formatCurrency = (amount) => {
+    const num = typeof amount === 'number' ? amount : extractNumber(amount);
+    return isNaN(num) ? '0.00' : num.toFixed(2);
+  };
+
+  // 📦 Accept order - Requires being ONLINE (socket connection)
   const handleAccept = async () => {
     if (!userId) {
       Alert.alert('Error', 'User ID not found. Please log in again.');
@@ -58,9 +94,28 @@ export default function OrderModal({
       return;
     }
 
+    // Check if user is online and connected to socket
+    if (!isOnline) {
+      Alert.alert(
+        'Go Online First',
+        'You need to be ONLINE to accept orders. Please go to Dashboard and switch to Online mode.',
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+
+    if (!isConnected) {
+      Alert.alert(
+        'Not Connected',
+        'Not connected to server. Please wait while we establish connection, then try again.',
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+
     Alert.alert(
       'Accept Order',
-      `Are you sure you want to accept this order for ETB ${order.grandTotal?.toFixed(2) || '0.00'}?`,
+      `Are you sure you want to accept this order for ETB ${formatCurrency(grandTotal)}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -69,7 +124,7 @@ export default function OrderModal({
           onPress: async () => {
             setAcceptingOrder(true);
             try {
-              // Use the acceptOrder function from delivery provider
+              // Use the acceptOrder function from delivery provider (requires socket connection)
               const success = await acceptOrder(order.orderId, userId);
               if (success) {
                 // Close the modal on successful acceptance
@@ -77,7 +132,7 @@ export default function OrderModal({
               }
             } catch (error) {
               console.error('Error accepting order:', error);
-              Alert.alert('Error', 'Failed to accept order. Please try again.');
+              Alert.alert('Error', 'Failed to accept order. Please ensure you are online and connected.');
             } finally {
               setAcceptingOrder(false);
             }
@@ -140,7 +195,7 @@ export default function OrderModal({
                 </View>
                 <View style={styles.orderEarnings}>
                   <Text style={styles.earningsAmount}>
-                    ETB {order.grandTotal?.toFixed(2) || '0.00'}
+                    ETB {formatCurrency(grandTotal)}
                   </Text>
                   <Text style={styles.earningsLabel}>Grand Total</Text>
                 </View>
@@ -155,55 +210,11 @@ export default function OrderModal({
                     {order.restaurantName || order.restaurantLocation?.name || 'Restaurant'}
                   </Text>
                 </View>
-                <View style={styles.detailRow}>
-                  <MapPin color="#6B7280" size={16} />
-                  <Text style={styles.detailText}>
-                    Lat: {order.restaurantLocation?.lat?.toFixed(6) || 'N/A'}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <MapPin color="#6B7280" size={16} />
-                  <Text style={styles.detailText}>
-                    Lng: {order.restaurantLocation?.lng?.toFixed(6) || 'N/A'}
-                  </Text>
-                </View>
               </View>
 
-              {/* Delivery Location */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Delivery Location</Text>
-                <View style={styles.detailRow}>
-                  <Navigation color="#6B7280" size={16} />
-                  <Text style={styles.detailText}>
-                    Lat: {order.deliveryLocation?.lat?.toFixed(6) || 'N/A'}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Navigation color="#6B7280" size={16} />
-                  <Text style={styles.detailText}>
-                    Lng: {order.deliveryLocation?.lng?.toFixed(6) || 'N/A'}
-                  </Text>
-                </View>
-              </View>
+            
 
-              {/* Customer Information */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Customer Information</Text>
-                <View style={styles.customerInfo}>
-                  <View style={styles.customerRow}>
-                    <User color="#6B7280" size={16} />
-                    <Text style={styles.customerText}>
-                      {order.userName || order.customer?.name || 'Customer'}
-                    </Text>
-                  </View>
-                  <View style={styles.customerRow}>
-                    <Phone color="#6B7280" size={16} />
-                    <Text style={styles.customerText}>
-                      {order.phone || order.customer?.phone || 'N/A'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
+            
 
               {/* Order Items */}
               <View style={styles.section}>
@@ -220,63 +231,30 @@ export default function OrderModal({
                 )}
               </View>
 
-              {/* Order Status & Verification */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Order Status & Verification</Text>
-                <View style={styles.detailRow}>
-                  <Package color="#6B7280" size={16} />
-                  <Text style={styles.detailText}>
-                    Status: {order.orderStatus || 'Pending'}
-                  </Text>
-                </View>
-                {order.pickUpVerificationCode && (
-                  <View style={styles.detailRow}>
-                    <Check color="#6B7280" size={16} />
-                    <Text style={styles.detailText}>
-                      Pickup Code: {order.pickUpVerificationCode}
-                    </Text>
-                  </View>
-                )}
-                {order.verificationCode && (
-                  <View style={styles.detailRow}>
-                    <Check color="#6B7280" size={16} />
-                    <Text style={styles.detailText}>
-                      Verification Code: {order.verificationCode}
-                    </Text>
-                  </View>
-                )}
-              </View>
+              
 
-              {/* Special Instructions */}
-              {(order.description || order.specialInstructions) && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Special Instructions</Text>
-                  <Text style={styles.instructionsText}>
-                    {order.description || order.specialInstructions}
-                  </Text>
-                </View>
-              )}
+            
 
               {/* Order Breakdown */}
               <View style={styles.orderBreakdown}>
                 <Text style={styles.sectionTitle}>Order Summary</Text>
                 <View style={styles.breakdownRow}>
                   <Text style={styles.breakdownLabel}>Delivery Fee:</Text>
-                  <Text style={styles.breakdownValue}>ETB {order.deliveryFee?.toFixed(2) || '0.00'}</Text>
+                  <Text style={styles.breakdownValue}>ETB {formatCurrency(deliveryFee)}</Text>
                 </View>
                 <View style={styles.breakdownRow}>
                   <Text style={styles.breakdownLabel}>Tip:</Text>
-                  <Text style={styles.breakdownValue}>ETB {order.tip?.toFixed(2) || '0.00'}</Text>
+                  <Text style={styles.breakdownValue}>ETB {formatCurrency(tip)}</Text>
                 </View>
                 {order.distanceKm && (
                   <View style={styles.breakdownRow}>
                     <Text style={styles.breakdownLabel}>Distance:</Text>
-                    <Text style={styles.breakdownValue}>{order.distanceKm} km</Text>
+                    <Text style={styles.breakdownValue}>{extractNumber(order.distanceKm).toFixed(2)} km</Text>
                   </View>
                 )}
                 <View style={[styles.breakdownRow, styles.totalRow]}>
                   <Text style={styles.totalLabel}>Grand Total:</Text>
-                  <Text style={styles.totalValue}>ETB {order.grandTotal?.toFixed(2) || '0.00'}</Text>
+                  <Text style={styles.totalValue}>ETB {formatCurrency(grandTotal)}</Text>
                 </View>
               </View>
             </ScrollView>
