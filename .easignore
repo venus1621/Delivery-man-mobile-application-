@@ -4,6 +4,9 @@
 .codacy/
 .github/
 
+# Ignore Expo cache and temp files
+.expo/
+
 # Ignore build artifacts
 dist/
 web-build/
