@@ -400,30 +400,15 @@ export const DeliveryProvider = ({ children }) => {
           console.error('❌ Error updating delivery guy location in Firebase:', error);
         });
         
-        console.log('🔥 Delivery guy location sent to Firebase:', userId);
-        
-        console.log('🔍 Active Orders Check:', {
-          hasActiveOrders: activeOrders.length > 0,
-          orderCount: activeOrders.length,
-          orderIds: activeOrders.map(o => o.orderId || o.orderCode)
-        });
-
+       
         // SEND TO ORDER-SPECIFIC FIREBASE PATH (for customer tracking)
         // This works INDEPENDENTLY of socket status - if there's an active order, send location
         if (activeOrders.length > 0) {
-          console.log(`📦 Sending location to ${activeOrders.length} active order(s) - Independent of socket status`);
           
           // Send location for each active order
           const locationUpdatePromises = activeOrders.map(async (order) => {
             // Log available order fields to debug
-            console.log('🔍 Order fields available:', {
-              _id: order._id,
-              id: order.id,
-              orderId: order.orderId,
-              orderCode: order.orderCode,
-              allKeys: Object.keys(order)
-            });
-            
+              
             // Priority: Use MongoDB _id first (for customer app compatibility)
             // The API might return the MongoDB ID in different fields
             const mongoId = order._id || order.id;
@@ -434,9 +419,7 @@ export const DeliveryProvider = ({ children }) => {
               return;
             }
             
-            console.log('📍 Using Firebase path for order:', orderId);
-            console.log('📦 Order Code:', order.orderCode || 'N/A');
-            
+           
             const orderRef = ref(database, `deliveryOrders/${orderId}`);
             const orderLocationHistoryRef = ref(database, `deliveryOrders/${orderId}/locationHistory`);
             
@@ -508,9 +491,7 @@ export const DeliveryProvider = ({ children }) => {
                 update(orderRef, orderLocationData),
                 push(orderLocationHistoryRef, orderHistoryEntry)
               ]);
-              console.log('✅ Order location updated successfully:', orderId);
-              console.log('📍 Firebase Path: deliveryOrders/' + orderId);
-              
+             
               // Check proximity to destination and trigger alarm if close
               await checkProximityAndAlert(order, currentLocation, orderId);
             } catch (error) {
