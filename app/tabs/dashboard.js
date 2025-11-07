@@ -7,10 +7,13 @@ import {
   ScrollView,
   Dimensions,
   RefreshControl,
+  Alert,
+  ToastAndroid,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, DollarSign, Clock, MapPin, Wifi, WifiOff, User, Award } from 'lucide-react-native';
+import { Truck, DollarSign, Clock, MapPin, Wifi, WifiOff, User, Award, RefreshCw } from 'lucide-react-native';
 import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
 import { router } from 'expo-router';
@@ -29,6 +32,7 @@ export default function DashboardScreen() {
     toggleOnlineStatus,
     orderHistory,
     fetchActiveOrder,
+    fetchAllActiveOrders,
     isLoadingActiveOrder,
     activeOrderError,
     verifyDelivery,
@@ -49,25 +53,72 @@ export default function DashboardScreen() {
     fetchDeliveryHistory,
   } = useDelivery();
 
-  const { user } = useAuth();
+  const { user, checkAuthStatus } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [showBroadcastMessages, setShowBroadcastMessages] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [orderIdToVerify, setOrderIdToVerify] = useState(null);
+  const [lastRefreshTime, setLastRefreshTime] = useState(null);
 
-  // 🔄 Refresh data - These API calls work INDEPENDENTLY of socket connection
-  // You can refresh data even when offline (if internet is available)
+  // Show toast/alert message
+  const showRefreshMessage = (message, success = true) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      // For iOS, you can use Alert or a custom toast component
+      console.log(message);
+    }
+  };
+
+  // 🔄 Enhanced Refresh Function - Clears old data and fetches fresh data
   const onRefresh = async () => {
+    console.log('🔄 Starting complete data refresh...');
+    console.log('🧹 Clearing old data before fetching new data...');
     setRefreshing(true);
-    // Note: These work regardless of isOnline status (only need internet)
-    await Promise.all([
-      fetchAvailableOrders(),
-      fetchActiveOrder("Cooked"),
-      fetchActiveOrder('Delivering'),
-      fetchDeliveryHistory(),
-    ]);
-    setRefreshing(false);
+    
+    try {
+      // Step 1: Clear all cached/stored data first
+      console.log('🗑️ Clearing stored active orders, available orders, and history...');
+      
+      // Clear data by resetting the state (this will be handled by the provider)
+      // The fetch functions will populate with fresh data
+      
+      // Step 2: Refresh all data in parallel for better performance
+      const refreshPromises = [
+        // Delivery-related data - these will clear and repopulate
+        fetchAvailableOrders().catch(e => console.error('Error fetching available orders:', e)),
+        fetchAllActiveOrders().catch(e => console.error('Error fetching active orders:', e)), // Fetch all active orders at once
+        fetchDeliveryHistory().catch(e => console.error('Error fetching delivery history:', e)),
+      ];
+
+      // Also refresh user authentication status
+      if (checkAuthStatus) {
+        refreshPromises.push(
+          checkAuthStatus().catch(e => console.error('Error checking auth status:', e))
+        );
+      }
+
+      // Wait for all refresh operations to complete
+      await Promise.allSettled(refreshPromises);
+      
+      // Update last refresh time
+      const now = new Date();
+      setLastRefreshTime(now.toLocaleTimeString('en-US', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        second: '2-digit'
+      }));
+
+      console.log('✅ Complete data refresh successful - old data cleared, new data loaded');
+      showRefreshMessage('✅ Data refreshed successfully!', true);
+      
+    } catch (error) {
+      console.error('❌ Error during refresh:', error);
+      showRefreshMessage('⚠️ Some data failed to refresh', false);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Fetch delivery history on mount to ensure we have earnings data
@@ -79,11 +130,10 @@ export default function DashboardScreen() {
   useEffect(() => {
     if (isOnline) {
       fetchAvailableOrders();
-      fetchActiveOrder("Cooked");
-      fetchActiveOrder('Delivering');
+      fetchAllActiveOrders(); // Use the combined function instead
       fetchDeliveryHistory();
     }
-  }, [isOnline, fetchAvailableOrders, fetchActiveOrder, fetchDeliveryHistory]);
+  }, [isOnline, fetchAvailableOrders, fetchAllActiveOrders, fetchDeliveryHistory]);
 
   // Handle complete order with verification
   const handleCompleteOrder = () => {
@@ -105,9 +155,10 @@ export default function DashboardScreen() {
       if (result.success) {
         setShowVerificationModal(false);
         setOrderIdToVerify(null);
-        // Refresh both active orders and delivery history to update earnings
+        // Note: verifyDelivery already fetches history automatically
+        // But we refresh here too for immediate UI update
         await Promise.all([
-          fetchActiveOrder("Cooked"),
+          fetchAllActiveOrders(), // Use combined function instead
           fetchDeliveryHistory(),
         ]);
       }
@@ -134,6 +185,18 @@ export default function DashboardScreen() {
       };
     }
 
+    // Helper function to safely extract numeric values
+    const extractNumber = (value) => {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') return parseFloat(value) || 0;
+      // Handle MongoDB Decimal128 format
+      if (typeof value === 'object' && value.$numberDecimal) {
+        return parseFloat(value.$numberDecimal) || 0;
+      }
+      return 0;
+    };
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
@@ -145,12 +208,16 @@ export default function DashboardScreen() {
     });
 
     const todayEarnings = todayOrders.reduce((sum, order) => {
-      const earnings = order.grandTotal || order.totalEarnings || (order.deliveryFee + order.tip) || 0;
+      const earnings = extractNumber(order.totalEarnings) || 
+                      extractNumber(order.grandTotal) || 
+                      (extractNumber(order.deliveryFee) + extractNumber(order.tip));
       return sum + earnings;
     }, 0);
 
     const totalEarnings = orderHistory.reduce((sum, order) => {
-      const earnings = order.grandTotal || order.totalEarnings || (order.deliveryFee + order.tip) || 0;
+      const earnings = extractNumber(order.totalEarnings) || 
+                      extractNumber(order.grandTotal) || 
+                      (extractNumber(order.deliveryFee) + extractNumber(order.tip));
       return sum + earnings;
     }, 0);
 
@@ -197,23 +264,41 @@ export default function DashboardScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerLeft}>
             <Text style={styles.greeting}>{getGreeting()}!</Text>
             <Text style={styles.driverName}>{getUserFirstName()}</Text>
-          </View>
-          <TouchableOpacity 
-            style={[styles.statusButton, isOnline ? styles.online : styles.offline]}
-            onPress={toggleOnlineStatus}
-          >
-            {isOnline ? (
-              <Wifi color="#FFFFFF" size={20} />
-            ) : (
-              <WifiOff color="#FFFFFF" size={20} />
+            {lastRefreshTime && (
+              <Text style={styles.lastRefreshText}>
+                Last updated: {lastRefreshTime}
+              </Text>
             )}
-            <Text style={styles.statusText}>
-              {isOnline ? 'Online' : 'Offline'}
-            </Text>
-          </TouchableOpacity>
+          </View>
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={styles.refreshButton}
+              onPress={onRefresh}
+              disabled={refreshing}
+            >
+              <RefreshCw 
+                color={refreshing ? "#9CA3AF" : "#3B82F6"} 
+                size={24}
+                style={refreshing ? styles.refreshIconSpinning : null}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.statusButton, isOnline ? styles.online : styles.offline]}
+              onPress={toggleOnlineStatus}
+            >
+              {isOnline ? (
+                <Wifi color="#FFFFFF" size={20} />
+              ) : (
+                <WifiOff color="#FFFFFF" size={20} />
+              )}
+              <Text style={styles.statusText}>
+                {isOnline ? 'Online' : 'Offline'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Connection Status */}
@@ -317,7 +402,8 @@ export default function DashboardScreen() {
               <Text style={styles.totalEarningsTitle}>Total Earnings</Text>
             </View>
             <Text style={styles.totalEarningsAmount}>
-              ETB {(totalEarnings || 0).toFixed(2)}
+              ETB {(totalEarnings || 0)
+                .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
             <Text style={styles.totalEarningsSubtitle}>
               {orderHistory && orderHistory.length > 0 
@@ -418,7 +504,7 @@ export default function DashboardScreen() {
               <Text style={styles.quickActionSubtext}>Account & settings</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity 
+            {/* <TouchableOpacity 
               style={styles.quickActionButton}
               onPress={() => router.push('/earnings')}
             >
@@ -427,7 +513,7 @@ export default function DashboardScreen() {
               </View>
               <Text style={styles.quickActionText}>Earnings</Text>
               <Text style={styles.quickActionSubtext}>View detailed earnings</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
         </View>
 
@@ -473,7 +559,11 @@ export default function DashboardScreen() {
         <OrderModal
           visible={showOrderModalState}
           order={pendingOrderPopup}
-          onAccept={acceptOrderFromModal}
+          onAccept={(order) => acceptOrderFromModal(order, () => {
+            // Already on dashboard, just refresh the data
+            console.log('✅ Order accepted, refreshing dashboard data...');
+            onRefresh();
+          })}
           onDecline={declineOrder}
           onClose={hideOrderModal}
         />
@@ -512,6 +602,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 20,
   },
+  headerLeft: {
+    flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   greeting: {
     fontSize: 16,
     color: '#6B7280',
@@ -522,6 +620,22 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1F2937',
     marginTop: 4,
+  },
+  lastRefreshText: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  refreshButton: {
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  refreshIconSpinning: {
+    opacity: 0.5,
   },
   statusButton: {
     flexDirection: 'row',

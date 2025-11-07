@@ -53,13 +53,14 @@ export default function OrdersScreen() {
     ordersError,
     isConnected,
     isOnline,
-    acceptOrder
+    acceptOrder,
+    fetchActiveOrder
   } = useDelivery();
   
   const { userId } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
-  const [filterBy, setFilterBy] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
+  const [filterBy, setFilterBy] = useState('active');
+  const [showFilters, setShowFilters] = useState(true);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [userLocation, setUserLocation] = useState(null);
 
@@ -119,8 +120,16 @@ export default function OrdersScreen() {
             try {
               const success = await acceptOrder(order.id, userId);
               if (success) {
-                await fetchAvailableOrders();
-                Alert.alert('Success', 'Order accepted successfully!');
+                // Fetch all updated data
+                await Promise.all([
+                  fetchAvailableOrders(),
+                  fetchActiveOrder('Cooked'),
+                  fetchActiveOrder('Delivering'),
+                ]);
+                
+                // Automatically redirect to dashboard without prompt
+                console.log('✅ Order accepted successfully, redirecting to dashboard...');
+                router.push('/tabs/dashboard');
               }
             } catch (error) {
               console.error('Error accepting order:', error);
@@ -248,12 +257,17 @@ const getOrderPriority = (order) => {
     const distance = parseFloat(getOrderDistance(order));
     
     switch (filterBy) {
+      case 'active':
+        // Show all active listed orders (default - all available orders are active)
+        return true;
       case 'nearby':
         return !isNaN(distance) && distance <= 1;
       case 'high-value':
         return totalEarnings >= 200;
       case 'urgent':
         return priority.label === 'URGENT';
+      case 'all':
+        return true;
       default:
         return true;
     }
@@ -263,10 +277,11 @@ const getOrderPriority = (order) => {
     <Animated.View style={[styles.filterBar, { opacity: fadeAnim }]}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
         {[
-          { key: 'all', label: 'All Orders', icon: Truck },
+          { key: 'active', label: 'Active Listed', icon: Truck },
           { key: 'nearby', label: 'Nearby (<1km)', icon: Navigation },
           { key: 'high-value', label: 'High Value', icon: DollarSign },
-          { key: 'urgent', label: 'Urgent', icon: Zap }
+          { key: 'urgent', label: 'Urgent', icon: Zap },
+          { key: 'all', label: 'All Orders', icon: Building }
         ].map((filter) => (
           <TouchableOpacity
             key={filter.key}
@@ -418,12 +433,12 @@ const getOrderPriority = (order) => {
                 : `No orders match your "${filterBy}" filter. Try changing the filter.`
               }
             </Text>
-            {ordersData.length > 0 && (
+            {ordersData.length > 0 && filterBy !== 'active' && (
               <TouchableOpacity 
                 style={styles.showAllButton}
-                onPress={() => setFilterBy('all')}
+                onPress={() => setFilterBy('active')}
               >
-                <Text style={styles.showAllButtonText}>Show All Orders</Text>
+                <Text style={styles.showAllButtonText}>Show Active Listed</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity 

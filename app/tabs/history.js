@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar, Filter, TrendingUp, DollarSign, Package, Award } from 'lucide-react-native';
+import { Calendar, Filter, TrendingUp, DollarSign, Package, Award, ArrowLeft } from 'lucide-react-native';
+import { router } from 'expo-router';
 import { useDelivery } from '../../providers/delivery-provider';
 
 const { width } = Dimensions.get('window');
@@ -37,10 +38,12 @@ export default function HistoryScreen() {
   });
   const [analytics, setAnalytics] = useState({
     totalEarnings: 0,
+    deliveryFeeEarnings: 0,
     tipEarnings: 0,
     totalDeliveries: 0,
     averageEarning: 0,
     highestEarning: 0,
+    lowestEarning: 0,
   });
 
   // Update local state when delivery history changes
@@ -59,26 +62,74 @@ export default function HistoryScreen() {
     if (!history.length) {
       setAnalytics({
         totalEarnings: 0,
+        deliveryFeeEarnings: 0,
         tipEarnings: 0,
         totalDeliveries: 0,
         averageEarning: 0,
         highestEarning: 0,
+        lowestEarning: 0,
       });
       return;
     }
 
-    const totalEarnings = history.reduce((sum, order) => sum + order.totalEarnings, 0);
-    const tipEarnings = history.reduce((sum, order) => sum + order.tip, 0);
+    // Helper function to safely extract numeric values
+    const extractNumber = (value) => {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') return parseFloat(value) || 0;
+      // Handle MongoDB Decimal128 format
+      if (typeof value === 'object' && value.$numberDecimal) {
+        return parseFloat(value.$numberDecimal) || 0;
+      }
+      return 0;
+    };
+
+    // Calculate earnings with safe number extraction
+    const totalEarnings = history.reduce((sum, order) => {
+      const earnings = extractNumber(order.totalEarnings) || 
+                      extractNumber(order.grandTotal) || 
+                      (extractNumber(order.deliveryFee) + extractNumber(order.tip));
+      return sum + earnings;
+    }, 0);
+
+    const deliveryFeeEarnings = history.reduce((sum, order) => {
+      return sum + extractNumber(order.deliveryFee);
+    }, 0);
+
+    const tipEarnings = history.reduce((sum, order) => {
+      return sum + extractNumber(order.tip);
+    }, 0);
+
     const totalDeliveries = history.length;
     const averageEarning = totalEarnings / totalDeliveries;
-    const highestEarning = Math.max(...history.map(order => order.totalEarnings));
 
-    setAnalytics({
+    // Get highest and lowest earnings
+    const earningsArray = history.map(order => 
+      extractNumber(order.totalEarnings) || 
+      extractNumber(order.grandTotal) || 
+      (extractNumber(order.deliveryFee) + extractNumber(order.tip))
+    );
+    const highestEarning = Math.max(...earningsArray, 0);
+    const lowestEarning = Math.min(...earningsArray, 0);
+
+    console.log('📊 Calculated Analytics:', {
       totalEarnings,
+      deliveryFeeEarnings,
       tipEarnings,
       totalDeliveries,
       averageEarning,
       highestEarning,
+      lowestEarning,
+    });
+
+    setAnalytics({
+      totalEarnings,
+      deliveryFeeEarnings,
+      tipEarnings,
+      totalDeliveries,
+      averageEarning,
+      highestEarning,
+      lowestEarning,
     });
   }, []);
 
@@ -174,40 +225,59 @@ export default function HistoryScreen() {
     </LinearGradient>
   );
 
-  const OrderItem = ({ item }) => (
-    <View style={styles.orderCard}>
-      <View style={styles.orderHeader}>
-        <Text style={styles.restaurantName}>{item.restaurantName}</Text>
-        <Text style={styles.orderCode}>{item.orderCode}</Text>
+  const OrderItem = ({ item }) => {
+    // Safely extract numeric values
+    const extractNumber = (value) => {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') return parseFloat(value) || 0;
+      if (typeof value === 'object' && value.$numberDecimal) {
+        return parseFloat(value.$numberDecimal) || 0;
+      }
+      return 0;
+    };
+
+    const deliveryFee = extractNumber(item.deliveryFee);
+    const tip = extractNumber(item.tip);
+    const totalEarnings = extractNumber(item.totalEarnings) || 
+                         extractNumber(item.grandTotal) || 
+                         (deliveryFee + tip);
+
+    return (
+      <View style={styles.orderCard}>
+        <View style={styles.orderHeader}>
+          <Text style={styles.restaurantName}>{item.restaurantName || 'Unknown Restaurant'}</Text>
+          <Text style={styles.orderCode}>{item.orderCode || 'N/A'}</Text>
+        </View>
+        
+        <View style={styles.orderDetails}>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Delivery Fee:</Text>
+            <Text style={styles.detailValue}>{formatCurrency(deliveryFee)}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Tip:</Text>
+            <Text style={[styles.detailValue, styles.tipValue]}>
+              +{formatCurrency(tip)}
+            </Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Total Earnings:</Text>
+            <Text style={[styles.detailValue, styles.totalValue]}>
+              {formatCurrency(totalEarnings)}
+            </Text>
+          </View>
+        </View>
+        
+        <View style={styles.orderFooter}>
+          <Text style={styles.dateText}>{formatDate(item.updatedAt)}</Text>
+          <View style={[styles.statusBadge, styles.completedBadge]}>
+            <Text style={styles.statusText}>{item.orderStatus || 'Completed'}</Text>
+          </View>
+        </View>
       </View>
-      
-      <View style={styles.orderDetails}>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Delivery Fee:</Text>
-          <Text style={styles.detailValue}>{formatCurrency(item.deliveryFee)}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Tip:</Text>
-          <Text style={[styles.detailValue, styles.tipValue]}>
-            +{formatCurrency(item.tip)}
-          </Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Total:</Text>
-          <Text style={[styles.detailValue, styles.totalValue]}>
-            {formatCurrency(item.totalEarnings)}
-          </Text>
-        </View>
-      </View>
-      
-      <View style={styles.orderFooter}>
-        <Text style={styles.dateText}>{formatDate(item.updatedAt)}</Text>
-        <View style={[styles.statusBadge, styles.completedBadge]}>
-          <Text style={styles.statusText}>{item.orderStatus}</Text>
-        </View>
-      </View>
-    </View>
-  );
+    );
+  };
 
   if (isLoadingHistory && !refreshing) {
     return (
@@ -236,12 +306,17 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={['#f7f7f7ff', '#ffffffff']}
-        style={styles.header}
-      >
-        
-      </LinearGradient>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <ArrowLeft color="#1F2937" size={24} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Delivery History</Text>
+        <View style={styles.placeholder} />
+      </View>
 
       <ScrollView
         refreshControl={
@@ -261,26 +336,28 @@ export default function HistoryScreen() {
             <AnalyticsCard
               title="Total Earnings"
               value={formatCurrency(analytics.totalEarnings)}
+              subtitle={`${analytics.totalDeliveries} deliveries`}
               icon={<DollarSign size={16} color="#FFF" />}
               color="#10B981"
             />
             <AnalyticsCard
-              title="Tip Earnings"
+              title="Delivery Fees"
+              value={formatCurrency(analytics.deliveryFeeEarnings)}
+              subtitle={`${((analytics.deliveryFeeEarnings / analytics.totalEarnings) * 100 || 0).toFixed(1)}% of total`}
+              icon={<Package size={16} color="#FFF" />}
+              color="#3B82F6"
+            />
+            <AnalyticsCard
+              title="Tips Received"
               value={formatCurrency(analytics.tipEarnings)}
               subtitle={`${((analytics.tipEarnings / analytics.totalEarnings) * 100 || 0).toFixed(1)}% of total`}
               icon={<Award size={16} color="#FFF" />}
               color="#F59E0B"
             />
             <AnalyticsCard
-              title="Total Deliveries"
-              value={analytics.totalDeliveries.toString()}
-              icon={<Package size={16} color="#FFF" />}
-              color="#3B82F6"
-            />
-            <AnalyticsCard
               title="Avg per Delivery"
               value={formatCurrency(analytics.averageEarning)}
-              subtitle={`Highest: ${formatCurrency(analytics.highestEarning)}`}
+              subtitle={`Range: ${formatCurrency(analytics.lowestEarning)} - ${formatCurrency(analytics.highestEarning)}`}
               icon={<TrendingUp size={16} color="#FFF" />}
               color="#8B5CF6"
             />
@@ -389,18 +466,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
   },
   header: {
-    padding: 20,
-    paddingTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  backButton: {
+    padding: 8,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#FFF',
-    marginBottom: 4,
+    color: '#1F2937',
   },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#E2E8F0',
+  placeholder: {
+    width: 40,
   },
   loadingContainer: {
     flex: 1,

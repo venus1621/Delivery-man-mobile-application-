@@ -13,7 +13,9 @@ import {
   TextInput,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Switch,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
@@ -31,6 +33,9 @@ import {
   EyeOff,
   X,
   Key,
+  Bell,
+  Volume2,
+  VolumeX,
 } from 'lucide-react-native';
 import { useAuth } from '../../providers/auth-provider';
 import { useDelivery } from '../../providers/delivery-provider';
@@ -55,11 +60,46 @@ export default function ProfileScreen() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  
+  // Notification Sound Settings
+  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true);
 
   // Fetch delivery history on mount
   useEffect(() => {
     fetchDeliveryHistory();
+    loadNotificationSettings();
   }, [fetchDeliveryHistory]);
+
+  // Load notification sound preference from storage
+  const loadNotificationSettings = async () => {
+    try {
+      const soundEnabled = await AsyncStorage.getItem('notificationSoundEnabled');
+      if (soundEnabled !== null) {
+        setNotificationSoundEnabled(soundEnabled === 'true');
+      }
+    } catch (error) {
+      console.error('Error loading notification settings:', error);
+    }
+  };
+
+  // Toggle notification sound and save preference
+  const toggleNotificationSound = async (value) => {
+    try {
+      setNotificationSoundEnabled(value);
+      await AsyncStorage.setItem('notificationSoundEnabled', value.toString());
+      
+      if (Platform.OS === 'android') {
+        const { ToastAndroid } = require('react-native');
+        ToastAndroid.show(
+          value ? '🔔 Notification sounds enabled' : '🔕 Notification sounds muted',
+          ToastAndroid.SHORT
+        );
+      }
+    } catch (error) {
+      console.error('Error saving notification settings:', error);
+      Alert.alert('Error', 'Failed to save notification settings');
+    }
+  };
 
   // 🔄 Handle refresh - Works INDEPENDENTLY of socket connection
   const onRefresh = async () => {
@@ -79,8 +119,22 @@ export default function ProfileScreen() {
       };
     }
 
+    // Helper function to safely extract numeric values
+    const extractNumber = (value) => {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') return parseFloat(value) || 0;
+      // Handle MongoDB Decimal128 format
+      if (typeof value === 'object' && value.$numberDecimal) {
+        return parseFloat(value.$numberDecimal) || 0;
+      }
+      return 0;
+    };
+
     const totalEarnings = deliveryHistory.reduce((sum, order) => {
-      const earnings = order.grandTotal || order.totalEarnings || (order.deliveryFee + order.tip) || 0;
+      const earnings = extractNumber(order.totalEarnings) || 
+                      extractNumber(order.grandTotal) || 
+                      (extractNumber(order.deliveryFee) + extractNumber(order.tip));
       return sum + earnings;
     }, 0);
 
@@ -248,6 +302,22 @@ export default function ProfileScreen() {
   };
 
   const menuItems = [
+    {
+      icon: notificationSoundEnabled ? Volume2 : VolumeX,
+      label: 'Notification Sound',
+      subtitle: notificationSoundEnabled ? 'Sound enabled' : 'Sound muted',
+      color: notificationSoundEnabled ? '#10B981' : '#6B7280',
+      onPress: () => {},
+      rightComponent: (
+        <Switch
+          value={notificationSoundEnabled}
+          onValueChange={toggleNotificationSound}
+          trackColor={{ false: '#D1D5DB', true: '#86EFAC' }}
+          thumbColor={notificationSoundEnabled ? '#10B981' : '#9CA3AF'}
+          ios_backgroundColor="#D1D5DB"
+        />
+      ),
+    },
     {
       icon: Key,
       label: 'Change Password',

@@ -232,26 +232,25 @@ export default function MapScreen() {
   const openInMaps = async () => {
     if (!currentLocation || !restaurant) return;
 
-    const scheme = Platform.select({
-      ios: 'maps:0,0?q=',
-      android: 'geo:0,0?q=',
-      default: 'https://www.google.com/maps/dir/',
-    });
-
     const latLng = `${restaurant.lat},${restaurant.lng}`;
     const label = encodeURIComponent(restaurant.name || 'Restaurant');
+    const currentLatLng = `${currentLocation.latitude},${currentLocation.longitude}`;
+
+    // Use Google Maps directions URL format with current location as origin for all platforms
     const url = Platform.select({
-      ios: `${scheme}${label}@${latLng}`,
-      android: `${scheme}${latLng}(${label})`,
-      default: `https://www.google.com/maps/dir/?api=1&origin=${currentLocation.latitude},${currentLocation.longitude}&destination=${latLng}&travelmode=driving`,
+      ios: `http://maps.apple.com/?saddr=${currentLatLng}&daddr=${latLng}&dirflg=d`,
+      android: `https://www.google.com/maps/dir/?api=1&origin=${currentLatLng}&destination=${latLng}&travelmode=driving`,
+      default: `https://www.google.com/maps/dir/?api=1&origin=${currentLatLng}&destination=${latLng}&travelmode=driving`,
     });
 
     try {
       const supported = await Linking.canOpenURL(url);
       if (supported) {
         await Linking.openURL(url);
+        console.log(`🗺️ Opening directions from ${currentLatLng} to ${latLng}`);
       }
     } catch (error) {
+      console.error('Error opening maps:', error);
       Alert.alert('Error', 'Cannot open maps app.');
     }
   };

@@ -6,8 +6,9 @@ import React, {
   useRef,
   useCallback,
 } from "react";
-import { Alert, Vibration, Platform } from "react-native";
+import { Alert, Vibration, Platform, ToastAndroid } from "react-native";
 import { Audio } from 'expo-av';
+import { isNotificationSoundEnabled } from '../utils/notification-settings';
 // Note: removed persistent local storage for accepted orders - using in-memory state only
 import io from "socket.io-client";
 import { useAuth } from "./auth-provider";
@@ -116,6 +117,15 @@ export const DeliveryProvider = ({ children }) => {
   // 🔊 Play continuous alarm sound (ringing)
   const playProximityAlarm = useCallback(async () => {
     try {
+      // Check if notification sounds are enabled
+      const soundEnabled = await isNotificationSoundEnabled();
+      
+      if (!soundEnabled) {
+        console.log('🔇 Proximity alarm sound muted by user settings, vibration only');
+        startContinuousVibration();
+        return;
+      }
+
       // Stop any existing sound
       await stopProximityAlarm();
 
@@ -145,6 +155,15 @@ export const DeliveryProvider = ({ children }) => {
   // 🔔 Play new order notification sound
   const playNewOrderNotification = useCallback(async () => {
     try {
+      // Check if notification sounds are enabled
+      const soundEnabled = await isNotificationSoundEnabled();
+      
+      if (!soundEnabled) {
+        console.log('🔇 Notification sound muted by user settings, vibration only');
+        Vibration.vibrate([0, 400, 200, 400]); // Two short bursts
+        return;
+      }
+
       // Configure audio to play in silent mode
       await Audio.setAudioModeAsync({
         playsInSilentModeIOS: true,
@@ -521,6 +540,29 @@ export const DeliveryProvider = ({ children }) => {
     };
   }, [userId, state.isLocationTracking, state.isOnline, state.activeOrder, user, checkProximityAndAlert]);
 
+  // 🔥 Monitor activeOrder changes and send "Delivering" orders to Firebase
+  useEffect(() => {
+    const checkAndSendToFirebase = async () => {
+      if (!state.activeOrder || !userId) return;
+      
+      // Handle both array and single object
+      const orders = Array.isArray(state.activeOrder) ? state.activeOrder : [state.activeOrder];
+      
+      // Filter for "Delivering" status orders
+      const deliveringOrders = orders.filter(order => {
+        const status = order.orderStatus || order.status || '';
+        return status.toLowerCase() === 'delivering';
+      });
+      
+      if (deliveringOrders.length > 0) {
+        console.log(`🔥 Found ${deliveringOrders.length} order(s) with "Delivering" status, sending to Firebase...`);
+        await sendOrderStatusToFirebase(deliveringOrders);
+      }
+    };
+    
+    checkAndSendToFirebase();
+  }, [state.activeOrder, userId, sendOrderStatusToFirebase]);
+
   // 🔌 Connect to socket server with authentication
   // Socket connects ONLY when user is ONLINE
   useEffect(() => {
@@ -721,13 +763,95 @@ export const DeliveryProvider = ({ children }) => {
 // ✅ API FUNCTIONS BELOW WORK INDEPENDENTLY OF SOCKET/ONLINE STATUS
 // These functions use direct HTTP calls and work whether you're online or offline
 
+// 🔥 Send order status to Firebase immediately - Enhanced for Delivering status
+const sendOrderStatusToFirebase = useCallback(async (orders) => {
+  if (!orders || !Array.isArray(orders) || orders.length === 0) {
+    console.log('⚠️ No orders to send to Firebase');
+    return;
+  }
+
+  console.log(`🔥 Preparing to send ${orders.length} order(s) to Firebase...`);
+  const currentLocation = locationService.getCurrentLocation();
+  
+  for (const order of orders) {
+    try {
+      const mongoId = order._id || order.id;
+      const orderId = mongoId || order.orderId || order.orderCode;
+      
+      if (!orderId) {
+        console.warn('⚠️ Order missing ID, skipping Firebase update:', order);
+        continue;
+      }
+
+      const orderStatus = order.orderStatus || order.status || 'Delivering';
+      const orderRef = ref(database, `deliveryOrders/${orderId}`);
+      
+      const orderData = {
+        orderId: orderId,
+        orderCode: order.orderCode || `ORD-${orderId.slice(-6)}`,
+        status: orderStatus,
+        orderStatus: orderStatus,
+        deliveryPerson: {
+          id: userId,
+          name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+          phone: user?.phone || 'N/A',
+          deliveryMethod: user?.deliveryMethod || 'N/A'
+        },
+        trackingEnabled: true,
+        deliveryFee: extractNumber(order.deliveryFee),
+        tip: extractNumber(order.tip),
+        lastStatusUpdate: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Add optional fields
+      if (order.restaurantName) orderData.restaurantName = order.restaurantName;
+      if (order.restaurantLocation) orderData.restaurantLocation = order.restaurantLocation;
+      if (order.destinationLocation) orderData.customerLocation = order.destinationLocation;
+      else if (order.deliveryLocation) orderData.customerLocation = order.deliveryLocation;
+      else if (order.deliverLocation) orderData.customerLocation = order.deliverLocation;
+      if (order.pickUpVerificationCode) orderData.pickUpVerificationCode = order.pickUpVerificationCode;
+      if (order.userName) orderData.customerName = order.userName;
+      if (order.phone) orderData.customerPhone = order.phone;
+      if (order.description) orderData.description = order.description;
+
+      // Add current location if available
+      if (currentLocation) {
+        orderData.deliveryLocation = {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          accuracy: currentLocation.accuracy,
+          timestamp: currentLocation.timestamp
+        };
+        orderData.lastLocationUpdate = new Date().toISOString();
+        console.log(`📍 Including current location for order ${order.orderCode}`);
+      } else {
+        console.log(`⚠️ No current location available for order ${order.orderCode}`);
+      }
+
+      await update(orderRef, orderData);
+      console.log(`✅ Order ${order.orderCode} (${orderStatus}) sent to Firebase successfully`);
+      console.log(`🔥 Firebase path: deliveryOrders/${orderId}`);
+      
+    } catch (error) {
+      console.error(`❌ Error sending order ${order.orderCode || 'unknown'} to Firebase:`, error.message);
+    }
+  }
+}, [userId, user]);
+
 // 📦 Fetch active orders - WORKS WITHOUT SOCKET CONNECTION
 const fetchActiveOrder = useCallback(
   async (status) => {
     if (!status || !token) return;
 
     try {
-      setState(prev => ({ ...prev, isLoadingActiveOrder: true, activeOrderError: null }));
+      setState(prev => ({ 
+        ...prev, 
+        isLoadingActiveOrder: true, 
+        activeOrderError: null,
+      }));
+      
+      console.log(`🔄 Fetching fresh data with status: ${status}...`);
 
       const response = await fetch(
         `https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=${status}`,
@@ -737,7 +861,8 @@ const fetchActiveOrder = useCallback(
       );
 
       const data = await response.json();
-console.log(data)
+      console.log(`📦 Fetched orders with status "${status}":`, data);
+      
       if (response.ok && data.status === "success") {
         // Normalize active order data to handle MongoDB Decimal128
         const normalizedActiveOrders = Array.isArray(data.data) 
@@ -748,10 +873,20 @@ console.log(data)
             }))
           : [];
         
+        console.log(`✅ Loaded ${normalizedActiveOrders.length} fresh order(s) with status "${status}"`);
+        
+        // 🔥 If status is "Delivering", immediately send to Firebase
+        if (status === 'Delivering' && normalizedActiveOrders.length > 0) {
+          console.log(`🔥 Sending ${normalizedActiveOrders.length} "Delivering" order(s) to Firebase...`);
+          await sendOrderStatusToFirebase(normalizedActiveOrders);
+        }
+        
+        // Replace activeOrder completely with the new data
+        // When refreshing, we want fresh data only, not merged data
         setState(prev => ({
           ...prev,
           isLoadingActiveOrder: false,
-          activeOrder: normalizedActiveOrders,
+          activeOrder: normalizedActiveOrders.length > 0 ? normalizedActiveOrders : null,
         }));
       } else {
         // Display server error message
@@ -778,9 +913,85 @@ console.log(data)
       }));
     }
   },
-  [token]
+  [token, sendOrderStatusToFirebase]
 );
 
+// 🔄 Fetch all active orders (Cooked + Delivering) - Helper function for refresh
+const fetchAllActiveOrders = useCallback(async () => {
+  if (!token) return;
+  
+  console.log('🔄 Fetching all active orders (Cooked + Delivering)...');
+  
+  try {
+    // Clear active orders first
+    setState(prev => ({ 
+      ...prev, 
+      isLoadingActiveOrder: true, 
+      activeOrderError: null,
+      activeOrder: null // Clear old data
+    }));
+    
+    // Fetch both statuses in parallel
+    const [cookedResponse, deliveringResponse] = await Promise.all([
+      fetch(
+        'https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=Cooked',
+        { headers: { Authorization: `Bearer ${token}` } }
+      ),
+      fetch(
+        'https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=Delivering',
+        { headers: { Authorization: `Bearer ${token}` } }
+      ),
+    ]);
+    
+    const cookedData = await cookedResponse.json();
+    const deliveringData = await deliveringResponse.json();
+    
+    let allActiveOrders = [];
+    
+    // Process Cooked orders
+    if (cookedResponse.ok && cookedData.status === 'success' && Array.isArray(cookedData.data)) {
+      const normalized = cookedData.data.map(order => ({
+        ...order,
+        deliveryFee: extractNumber(order.deliveryFee),
+        tip: extractNumber(order.tip),
+      }));
+      allActiveOrders = [...allActiveOrders, ...normalized];
+      console.log(`✅ Loaded ${normalized.length} Cooked order(s)`);
+    }
+    
+    // Process Delivering orders
+    if (deliveringResponse.ok && deliveringData.status === 'success' && Array.isArray(deliveringData.data)) {
+      const normalized = deliveringData.data.map(order => ({
+        ...order,
+        deliveryFee: extractNumber(order.deliveryFee),
+        tip: extractNumber(order.tip),
+      }));
+      allActiveOrders = [...allActiveOrders, ...normalized];
+      console.log(`✅ Loaded ${normalized.length} Delivering order(s)`);
+      
+      // Send Delivering orders to Firebase
+      if (normalized.length > 0) {
+        await sendOrderStatusToFirebase(normalized);
+      }
+    }
+    
+    setState(prev => ({
+      ...prev,
+      isLoadingActiveOrder: false,
+      activeOrder: allActiveOrders.length > 0 ? allActiveOrders : null,
+    }));
+    
+    console.log(`✅ Total active orders loaded: ${allActiveOrders.length}`);
+    
+  } catch (error) {
+    console.error('❌ Error fetching all active orders:', error);
+    setState(prev => ({
+      ...prev,
+      isLoadingActiveOrder: false,
+      activeOrderError: 'Failed to fetch active orders',
+    }));
+  }
+}, [token, sendOrderStatusToFirebase]);
 
 // 📋 Fetch available orders - WORKS WITHOUT SOCKET CONNECTION
 const fetchAvailableOrders = useCallback(async () => {
@@ -794,11 +1005,16 @@ const fetchAvailableOrders = useCallback(async () => {
   }
 
   try {
+    // Clear existing available orders before fetching new data
     setState((prev) => ({
       ...prev,
       isLoadingOrders: true,
       ordersError: null,
+      availableOrders: [], // Clear old data first
+      availableOrdersCount: 0,
     }));
+    
+    console.log('🧹 Cleared old available orders, fetching fresh data...');
 
     const response = await fetch(
       "https://gebeta-delivery1.onrender.com/api/v1/orders/available-cooked",
@@ -828,6 +1044,8 @@ const fetchAvailableOrders = useCallback(async () => {
         total: order.grandTotal,
         createdAt: new Date(order.createdAt).toLocaleString(),
       }));
+
+      console.log(`✅ Loaded ${normalizedOrders.length} fresh available order(s)`);
 
       setState((prev) => ({
         ...prev,
@@ -946,17 +1164,26 @@ const fetchAvailableOrders = useCallback(async () => {
             const tip = extractNumber(response.data?.tip);
             const totalEarnings = deliveryFee + tip;
 
-        Alert.alert(
-          "🎉 Order Accepted Successfully!",
-              `✅ ${response.message || 'Order accepted successfully'}\n\n📦 Order Code: ${response.data?.orderCode || 'N/A'}\n🔑 Pickup Code: ${response.data?.pickUpVerification || 'N/A'}\n💰 Total Earnings: ETB ${formatCurrency(totalEarnings)}\n📏 Distance: ${response.data?.distanceKm || 0} km\n\n💡 Please proceed to the restaurant to collect your order.`,
-          [
-            { 
-              text: 'Got it!', 
-              style: 'default',
-              onPress: () => console.log('User acknowledged order acceptance')
-            }
-          ]
-        );
+        // Immediately fetch active orders to update the state
+        console.log('🔄 Fetching active orders after successful acceptance...');
+        fetchActiveOrder('Cooked').catch(e => console.error('Error fetching cooked orders:', e));
+        fetchActiveOrder('Delivering').catch(e => console.error('Error fetching delivering orders:', e));
+
+        // Log success details to console (no blocking alert)
+        console.log('🎉 Order Accepted Successfully!');
+        console.log(`📦 Order Code: ${response.data?.orderCode || 'N/A'}`);
+        console.log(`🔑 Pickup Code: ${response.data?.pickUpVerification || 'N/A'}`);
+        console.log(`💰 Total Earnings: ETB ${formatCurrency(totalEarnings)}`);
+        console.log(`📏 Distance: ${response.data?.distanceKm || 0} km`);
+        console.log('💡 Please proceed to the restaurant to collect your order.');
+        
+        // Show quick toast notification on Android (non-blocking)
+        if (Platform.OS === 'android') {
+          ToastAndroid.show(
+            `✅ Order ${response.data?.orderCode || 'N/A'} accepted!`,
+            ToastAndroid.SHORT
+          );
+        }
         
             resolve(true);
       } else {            
@@ -1033,7 +1260,7 @@ const fetchAvailableOrders = useCallback(async () => {
         resolve(false);
       }
     });
-  }, []);
+  }, [fetchActiveOrder]);
 
   // Mock functions to prevent errors
   const toggleOnlineStatus = useCallback(() => {
@@ -1058,13 +1285,25 @@ const fetchAvailableOrders = useCallback(async () => {
   }, []);
 
   const acceptOrderFromModal = useCallback(
-    async (order) => {
+    async (order, onSuccessCallback) => {
       const success = await acceptOrder(order.orderId, userId);
       if (success) {
         hideOrderModal();
+        
+        // Fetch active orders to refresh the state
+        console.log('🔄 Fetching active orders after acceptance...');
+        await Promise.all([
+          fetchActiveOrder('Cooked'),
+          fetchActiveOrder('Delivering'),
+        ]);
+        
+        // Call success callback if provided (for navigation)
+        if (onSuccessCallback) {
+          onSuccessCallback();
+        }
       }
     },
-    [acceptOrder, userId, hideOrderModal]
+    [acceptOrder, userId, hideOrderModal, fetchActiveOrder]
   );
 
   const declineOrder = useCallback((order) => {
@@ -1231,11 +1470,16 @@ const fetchDeliveryHistory = useCallback(async () => {
   console.log("📊 Fetching completed delivery history...");
 
   try {
+    // Clear existing history before fetching new data
     setState((prev) => ({
       ...prev,
       isLoadingHistory: true,
       historyError: null,
+      deliveryHistory: [], // Clear old data first
+      orderHistory: [],
     }));
+    
+    console.log('🧹 Cleared old delivery history, fetching fresh data...');
 
     const response = await fetch(
       "https://gebeta-delivery1.onrender.com/api/v1/orders/get-orders-by-DeliveryMan?status=Completed",
@@ -1293,7 +1537,7 @@ const fetchDeliveryHistory = useCallback(async () => {
      
     }));
 
-    console.log(`✅ Loaded ${normalizedHistory.length} completed deliveries`);
+    console.log(`✅ Loaded ${normalizedHistory.length} fresh completed deliveries`);
 
   } catch (error) {
     console.error("❌ Error fetching delivery history:", error);
@@ -1345,6 +1589,13 @@ const fetchDeliveryHistory = useCallback(async () => {
         
         setState((prev) => ({ ...prev, activeOrder: null, acceptedOrder: null }));
         
+        // Fetch updated delivery history to show the completed order
+        console.log('🔄 Fetching delivery history after successful verification...');
+        fetchDeliveryHistory().catch(e => console.error('Error fetching delivery history:', e));
+        
+        // Fetch active orders to clear the completed one
+        fetchAllActiveOrders().catch(e => console.error('Error fetching active orders:', e));
+        
         Alert.alert("🎉 Delivery Verified!", data.message);
         return { success: true, data: data.data };
       }
@@ -1376,7 +1627,7 @@ const fetchDeliveryHistory = useCallback(async () => {
       Alert.alert("Error", errorMessage);
       return { success: false, error: errorMessage };
     }
-  }, [token]);
+  }, [token, fetchDeliveryHistory, fetchAllActiveOrders]);
   
   // 🏁 Complete order function
   const completeOrder = useCallback(async (orderId) => {
@@ -1390,16 +1641,20 @@ const fetchDeliveryHistory = useCallback(async () => {
         acceptedOrder: null,
       }));
       
-      // Fetch updated active order (should be null if no more cooked orders)
-      await fetchActiveOrder();
+      // Fetch updated delivery history to include the completed order
+      console.log('🔄 Fetching delivery history after completing order...');
+      await Promise.all([
+        fetchAllActiveOrders(), // Refresh active orders
+        fetchDeliveryHistory(), // Refresh completed orders history
+      ]);
       
-      console.log('✅ Order completed and active order updated');
+      console.log('✅ Order completed, active orders and history updated');
       return true;
     } catch (error) {
       console.error('❌ Error completing order:', error);
       return false;
     }
-  }, [fetchActiveOrder]);
+  }, [fetchAllActiveOrders, fetchDeliveryHistory]);
 
   // ❌ Cancel order function
   const cancelOrder = useCallback(async (orderId) => {
@@ -1783,6 +2038,7 @@ const fetchDeliveryHistory = useCallback(async () => {
      
         // Active order functions
         fetchActiveOrder,
+        fetchAllActiveOrders,
         // Location tracking functions
         startLocationTracking,
         stopLocationTracking,
@@ -1794,6 +2050,7 @@ const fetchDeliveryHistory = useCallback(async () => {
         sendLocationUpdate,
         initializeOrderTracking,
         sendDeliveryGuyLocationToFirebase,
+        sendOrderStatusToFirebase,
         getLocationUpdateInterval,
         updateLocationTrackingInterval,
         // Cleanup functions
