@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, DollarSign, Clock, MapPin, Wifi, WifiOff, User, Award, RefreshCw } from 'lucide-react-native';
+import { Truck, DollarSign, Clock, MapPin, Wifi, WifiOff, User, Award, RefreshCw, Scan } from 'lucide-react-native';
 import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
 import { router } from 'expo-router';
@@ -457,7 +457,18 @@ export default function DashboardScreen() {
                   </View>
 
                   <View style={styles.activeOrderFooter}>
-                    <Text style={styles.activeOrderTapText}>Tap for details →</Text>
+                    <TouchableOpacity
+                      style={styles.qrVerifyButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        setOrderIdToVerify(order.id || order._id);
+                        setShowVerificationModal(true);
+                      }}
+                    >
+                      <Scan color="#FFFFFF" size={18} />
+                      <Text style={styles.qrVerifyButtonText}>Verify with QR</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.activeOrderTapText}>Tap card for details →</Text>
                   </View>
                 </LinearGradient>
               </TouchableOpacity>
@@ -843,9 +854,26 @@ const styles = StyleSheet.create({
   },
   activeOrderFooter: {
     alignItems: 'center',
-    paddingTop: 8,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.2)',
+    gap: 8,
+  },
+  qrVerifyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.9)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 6,
+    width: '100%',
+  },
+  qrVerifyButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   activeOrderTapText: {
     fontSize: 12,

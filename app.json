@@ -15,7 +15,11 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.venus1621.deliveryapp"
+      "bundleIdentifier": "com.venus1621.deliveryapp",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app requires camera access to scan QR codes for order verification.",
+        "NSMicrophoneUsageDescription": "This app does not use the microphone."
+      }
     },
     "android": {
       "package": "com.delivery.gebeta",
@@ -26,7 +30,8 @@
       "permissions": [
         "android.permission.VIBRATE",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -45,6 +50,12 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan QR codes for order verification."
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {
@@ -56,9 +67,8 @@
       "expo-web-browser"
     ],
     "assetBundlePatterns": [
-      "assets/**/*",
-      "components/**/*",
-      "providers/**/*"
+      "assets/images/**/*",
+      "assets/fonts/**/*"
     ],
     "extra": {
       "router": { "origin": "https://delivery.gebeta.com/" },

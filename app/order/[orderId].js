@@ -21,8 +21,11 @@ import {
   CheckCircle,
   AlertCircle,
   ArrowLeft,
-  Navigation
+  Navigation,
+  Scan,
+  X
 } from 'lucide-react-native';
+import QRScanner from '../../components/QRScanner';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
@@ -38,6 +41,7 @@ export default function OrderDetailsScreen() {
   const [verificationError, setVerificationError] = useState('');
   const [attemptsLeft, setAttemptsLeft] = useState(3);
   const [isLocked, setIsLocked] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   // Find the order details (support activeOrder being null, an array, or a single object)
   const order = useMemo(() => {
@@ -532,10 +536,22 @@ console.log(order)
       </ScrollView>
 
       {/* Verification Modal */}
-      {showVerificationModal && (
+      {showVerificationModal && !showQRScanner && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>🔐 Verification Required</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🔐 Verification Required</Text>
+              <TouchableOpacity
+                style={styles.closeModalButton}
+                onPress={() => {
+                  setShowVerificationModal(false);
+                  setVerificationCode('');
+                  setVerificationError('');
+                }}
+              >
+                <X color="#6B7280" size={24} />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.modalSubtitle}>
               Enter the 6-digit verification code from the customer to complete the order
             </Text>
@@ -595,6 +611,29 @@ console.log(order)
                 </Text>
               )}
             </View>
+
+            {/* QR Scanner Option */}
+            <View style={styles.qrScannerSection}>
+              <View style={styles.dividerContainer}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR</Text>
+                <View style={styles.dividerLine} />
+              </View>
+              
+              <TouchableOpacity
+                style={styles.qrScanButton}
+                onPress={() => setShowQRScanner(true)}
+                disabled={isVerifying || isLocked}
+              >
+                <LinearGradient
+                  colors={['#3B82F6', '#1E40AF']}
+                  style={styles.qrScanButtonGradient}
+                >
+                  <Scan color="#FFFFFF" size={20} />
+                  <Text style={styles.qrScanButtonText}>Scan Customer QR Code</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
             
             <TouchableOpacity 
               style={styles.modalSingleButton}
@@ -609,6 +648,25 @@ console.log(order)
             </TouchableOpacity>
           </View>
         </View>
+      )}
+
+      {/* QR Scanner Modal */}
+      {showQRScanner && (
+        <QRScanner
+          visible={showQRScanner}
+          onClose={() => {
+            setShowQRScanner(false);
+          }}
+          onScanSuccess={(scannedCode, fullData) => {
+            console.log('✅ QR Code scanned:', scannedCode);
+            setShowQRScanner(false);
+            setShowVerificationModal(false);
+            setVerificationCode(scannedCode);
+            // Auto-verify after scan
+            handleVerifyAndComplete(scannedCode);
+          }}
+          orderId={order?.id || order?._id}
+        />
       )}
     </SafeAreaView>
   );
@@ -947,12 +1005,20 @@ const styles = StyleSheet.create({
     width: '90%',
     maxWidth: 400,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#1F2937',
-    textAlign: 'center',
-    marginBottom: 8,
+    flex: 1,
+  },
+  closeModalButton: {
+    padding: 4,
   },
   modalSubtitle: {
     fontSize: 14,
@@ -1120,5 +1186,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#6B7280',
+  },
+  qrScannerSection: {
+    marginTop: 20,
+    marginBottom: 16,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  qrScanButton: {
+    overflow: 'hidden',
+    borderRadius: 12,
+  },
+  qrScanButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+  },
+  qrScanButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

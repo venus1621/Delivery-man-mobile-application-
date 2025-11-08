@@ -11,7 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { X, CheckCircle, AlertCircle } from 'lucide-react-native';
+import { X, CheckCircle, AlertCircle, Scan } from 'lucide-react-native';
+import QRScanner from './QRScanner';
 
 export default function VerificationModal({ 
   visible, 
@@ -22,6 +23,7 @@ export default function VerificationModal({
   isLoading = false 
 }) {
   const [verificationCode, setVerificationCode] = useState('');
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   const handleVerify = () => {
     if (!orderId) {
@@ -57,7 +59,23 @@ export default function VerificationModal({
 
   const handleClose = () => {
     setVerificationCode('');
+    setShowQRScanner(false);
     onClose();
+  };
+
+  const handleQRScanSuccess = (scannedCode, fullData) => {
+    console.log('✅ QR Code scanned successfully:', scannedCode);
+    console.log('📦 Full QR data:', fullData);
+    
+    setVerificationCode(scannedCode);
+    setShowQRScanner(false);
+    
+    // Auto-verify after QR scan
+    onVerify(scannedCode);
+  };
+
+  const openQRScanner = () => {
+    setShowQRScanner(true);
   };
 
   return (
@@ -126,6 +144,29 @@ export default function VerificationModal({
               />
             </View>
 
+            {/* QR Code Scanner Button */}
+            <View style={styles.qrScannerContainer}>
+              <View style={styles.dividerContainer}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR</Text>
+                <View style={styles.dividerLine} />
+              </View>
+              
+              <TouchableOpacity
+                style={styles.qrScanButton}
+                onPress={openQRScanner}
+                disabled={isLoading}
+              >
+                <LinearGradient
+                  colors={['#3B82F6', '#1E40AF']}
+                  style={styles.qrScanButtonGradient}
+                >
+                  <Scan color="#FFFFFF" size={20} />
+                  <Text style={styles.qrScanButtonText}>Scan QR Code</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+
             {/* Action Buttons */}
             <View style={styles.buttonContainer}>
               <TouchableOpacity
@@ -158,6 +199,22 @@ export default function VerificationModal({
           </LinearGradient>
         </View>
       </KeyboardAvoidingView>
+
+      {/* QR Scanner Modal */}
+      {showQRScanner && (
+        <Modal
+          visible={showQRScanner}
+          animationType="slide"
+          onRequestClose={() => setShowQRScanner(false)}
+        >
+          <QRScanner
+            visible={showQRScanner}
+            onClose={() => setShowQRScanner(false)}
+            onScanSuccess={handleQRScanSuccess}
+            orderId={orderId}
+          />
+        </Modal>
+      )}
     </Modal>
   );
 }
@@ -302,6 +359,41 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   verifyButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  qrScannerContainer: {
+    marginBottom: 24,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  qrScanButton: {
+    overflow: 'hidden',
+    borderRadius: 8,
+  },
+  qrScanButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+  },
+  qrScanButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',

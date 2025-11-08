@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -36,10 +36,25 @@ import {
   Bell,
   Volume2,
   VolumeX,
+  Wallet,
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  History,
+  ArrowRight,
 } from 'lucide-react-native';
 import { useAuth } from '../../providers/auth-provider';
 import { useDelivery } from '../../providers/delivery-provider';
 import { router } from 'expo-router';
+import {
+  getBalance,
+  requestWithdrawal,
+  getTransactionHistory,
+  formatCurrency,
+  formatDate,
+  getTransactionTypeColor,
+  getTransactionStatusColor,
+} from '../../services/balance-service';
 
 export default function ProfileScreen() {
   const { user, logout, token } = useAuth();
@@ -63,12 +78,74 @@ export default function ProfileScreen() {
   
   // Notification Sound Settings
   const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true);
+  
+  // Balance and Transaction States
+  const [balance, setBalance] = useState(null);
+  const [recentTransactions, setRecentTransactions] = useState([]);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(true);
+  const [balanceError, setBalanceError] = useState(null);
+  
+  // Withdraw Modal States
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawError, setWithdrawError] = useState('');
+  const [withdrawSuccess, setWithdrawSuccess] = useState('');
+
+  // Fetch balance and recent transactions
+  const fetchBalanceData = useCallback(async () => {
+    if (!token) {
+      console.log('⚠️ No token available for balance fetch');
+      setIsLoadingBalance(false);
+      setBalanceError('Authentication required');
+      return;
+    }
+
+    try {
+      setIsLoadingBalance(true);
+      setBalanceError(null);
+      console.log('💰 Fetching balance data...');
+      console.log('Token:', token ? 'Present' : 'Missing');
+      
+      // Fetch balance
+      const balanceResult = await getBalance(token);
+      console.log('Balance result:', balanceResult);
+      if (balanceResult.success) {
+        setBalance(balanceResult.data);
+        console.log('✅ Balance loaded:', balanceResult.data);
+      } else {
+        console.log('❌ Failed to fetch balance:', balanceResult.message);
+        setBalanceError(balanceResult.message || 'Failed to load balance');
+      }
+      
+      // Fetch recent transactions (last 5 in descending order - newest first)
+      const historyResult = await getTransactionHistory(token);
+      console.log('Transaction history result:', historyResult);
+      if (historyResult.success) {
+        // Sort in descending order (newest first) and take first 5
+        const sortedTransactions = [...historyResult.data.transactions].sort((a, b) => {
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        });
+        const recent = sortedTransactions.slice(0, 5);
+        setRecentTransactions(recent);
+        console.log('✅ Recent transactions loaded (newest first):', recent.length);
+      } else {
+        console.log('❌ Failed to fetch transactions:', historyResult.message);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching balance data:', error);
+      setBalanceError('Unable to load balance');
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  }, [token]);
 
   // Fetch delivery history on mount
   useEffect(() => {
     fetchDeliveryHistory();
     loadNotificationSettings();
-  }, [fetchDeliveryHistory]);
+    fetchBalanceData();
+  }, [fetchDeliveryHistory, fetchBalanceData]);
 
   // Load notification sound preference from storage
   const loadNotificationSettings = async () => {
@@ -104,8 +181,68 @@ export default function ProfileScreen() {
   // 🔄 Handle refresh - Works INDEPENDENTLY of socket connection
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchDeliveryHistory();
+    await Promise.all([
+      fetchDeliveryHistory(),
+      fetchBalanceData(),
+    ]);
     setRefreshing(false);
+  };
+
+  // Handle withdrawal request
+  const handleWithdraw = async () => {
+    setWithdrawError('');
+    setWithdrawSuccess('');
+
+    // Validation
+    const amount = parseFloat(withdrawAmount);
+    if (!withdrawAmount.trim() || isNaN(amount)) {
+      setWithdrawError('Please enter a valid amount');
+      return;
+    }
+
+    if (amount <= 0) {
+      setWithdrawError('Amount must be greater than 0');
+      return;
+    }
+
+    if (balance && amount > balance.amount) {
+      setWithdrawError('Insufficient balance');
+      return;
+    }
+
+    setIsWithdrawing(true);
+
+    try {
+      const result = await requestWithdrawal(token, amount);
+
+      if (result.success) {
+        setWithdrawSuccess(result.message || 'Withdrawal request submitted successfully!');
+        
+        // Refresh balance after 1.5 seconds
+        setTimeout(async () => {
+          await fetchBalanceData();
+          setShowWithdrawModal(false);
+          setWithdrawAmount('');
+          setWithdrawError('');
+          setWithdrawSuccess('');
+        }, 1500);
+      } else {
+        setWithdrawError(result.message);
+      }
+    } catch (error) {
+      console.error('Error requesting withdrawal:', error);
+      setWithdrawError('Something went wrong. Please try again.');
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+
+  // Close withdraw modal
+  const handleCloseWithdraw = () => {
+    setShowWithdrawModal(false);
+    setWithdrawAmount('');
+    setWithdrawError('');
+    setWithdrawSuccess('');
   };
 
   // Calculate stats from delivery history
@@ -381,6 +518,139 @@ export default function ProfileScreen() {
           </LinearGradient>
         </View>
 
+        {/* Balance Card */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceHeader}>
+              <View style={styles.balanceHeaderLeft}>
+                <Wallet color="#3B82F6" size={24} />
+                <View style={styles.balanceHeaderText}>
+                  <Text style={styles.balanceLabel}>Available Balance</Text>
+                  {isLoadingBalance ? (
+                    <View style={styles.balanceLoadingContainer}>
+                      <ActivityIndicator size="small" color="#3B82F6" />
+                      <Text style={styles.balanceLoadingText}>Loading...</Text>
+                    </View>
+                  ) : balanceError ? (
+                    <View style={styles.balanceErrorContainer}>
+                      <Text style={styles.balanceErrorText}>{balanceError}</Text>
+                      <TouchableOpacity onPress={fetchBalanceData} style={styles.retrySmallButton}>
+                        <Text style={styles.retrySmallButtonText}>Retry</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <Text style={styles.balanceAmount}>
+                      ETB {balance ? formatCurrency(balance.amount) : '0.00'}
+                    </Text>
+                  )}
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.withdrawButton}
+                onPress={() => setShowWithdrawModal(true)}
+                activeOpacity={0.7}
+                disabled={isLoadingBalance || balanceError || !balance || balance.amount <= 0}
+              >
+                <LinearGradient
+                  colors={isLoadingBalance || balanceError || !balance || balance.amount <= 0 ? ['#9CA3AF', '#6B7280'] : ['#10B981', '#059669']}
+                  style={styles.withdrawButtonGradient}
+                >
+                  <DollarSign color="#FFFFFF" size={16} />
+                  <Text style={styles.withdrawButtonText}>Withdraw</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Recent Transactions */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Transactions</Text>
+            <TouchableOpacity
+              onPress={() => router.push('/transaction-history')}
+              style={styles.viewAllButton}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.viewAllText}>View All</Text>
+              <ArrowRight color="#3B82F6" size={16} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.transactionsCard}>
+            {isLoadingBalance ? (
+              <View style={styles.transactionsLoading}>
+                <ActivityIndicator size="small" color="#3B82F6" />
+                <Text style={styles.transactionsLoadingText}>Loading transactions...</Text>
+              </View>
+            ) : recentTransactions.length === 0 ? (
+              <View style={styles.transactionsEmpty}>
+                <History color="#9CA3AF" size={32} />
+                <Text style={styles.transactionsEmptyText}>No transactions yet</Text>
+              </View>
+            ) : (
+              recentTransactions.map((transaction, index) => {
+                const typeColor = getTransactionTypeColor(transaction.type);
+                const statusColors = getTransactionStatusColor(transaction.status);
+                
+                return (
+                  <View
+                    key={transaction.id || index}
+                    style={[
+                      styles.transactionItem,
+                      index !== recentTransactions.length - 1 && styles.transactionItemBorder,
+                    ]}
+                  >
+                    <View style={styles.transactionLeft}>
+                      <View
+                        style={[
+                          styles.transactionIcon,
+                          { backgroundColor: `${typeColor}15` },
+                        ]}
+                      >
+                        {transaction.type === 'Deposit' ? (
+                          <TrendingUp color={typeColor} size={18} />
+                        ) : (
+                          <TrendingDown color={typeColor} size={18} />
+                        )}
+                      </View>
+                      <View style={styles.transactionDetails}>
+                        <Text style={styles.transactionType}>{transaction.type}</Text>
+                        <Text style={styles.transactionDate}>
+                          {formatDate(transaction.createdAt)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.transactionRight}>
+                      <Text
+                        style={[styles.transactionAmount, { color: typeColor }]}
+                      >
+                        {transaction.type === 'Deposit' ? '+' : '-'}
+                        ETB {formatCurrency(transaction.amount)}
+                      </Text>
+                      <View
+                        style={[
+                          styles.transactionStatusBadge,
+                          { backgroundColor: statusColors.backgroundColor },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.transactionStatusText,
+                            { color: statusColors.color },
+                          ]}
+                        >
+                          {transaction.status}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        </View>
+
         {/* Personal Information */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Personal Information</Text>
@@ -610,6 +880,115 @@ export default function ProfileScreen() {
                     )}
                   </View>
                 </ScrollView>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      {/* Withdraw Modal */}
+      <Modal
+        visible={showWithdrawModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={handleCloseWithdraw}
+        statusBarTranslucent
+      >
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalKeyboardView}
+          >
+            <View style={styles.modalContainer}>
+              <View style={styles.modalContent}>
+                {/* Modal Header */}
+                <View style={styles.modalHeader}>
+                  <View style={[styles.modalIconContainer, { backgroundColor: '#10B981' }]}>
+                    <DollarSign color="#FFFFFF" size={32} />
+                  </View>
+                  <Text style={styles.modalTitle}>Request Withdrawal</Text>
+                  <TouchableOpacity
+                    onPress={handleCloseWithdraw}
+                    style={styles.closeButton}
+                    activeOpacity={0.7}
+                  >
+                    <X color="#6b7280" size={22} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.modalBody}>
+                  <Text style={styles.modalDescription}>
+                    Enter the amount you want to withdraw. Your current balance is ETB {balance ? formatCurrency(balance.amount) : '0.00'}.
+                  </Text>
+
+                  {/* Amount Input */}
+                  <View style={styles.modalInputContainer}>
+                    <Text style={styles.inputLabel}>Withdrawal Amount (ETB)</Text>
+                    <View style={styles.passwordInputWrapper}>
+                      <DollarSign color="#6b7280" size={20} style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.passwordInput}
+                        placeholder="Enter amount"
+                        placeholderTextColor="#9ca3af"
+                        value={withdrawAmount}
+                        onChangeText={setWithdrawAmount}
+                        keyboardType="numeric"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Quick Amount Buttons */}
+                  <View style={styles.quickAmountsContainer}>
+                    <Text style={styles.quickAmountsLabel}>Quick Select</Text>
+                    <View style={styles.quickAmountsButtons}>
+                      {['50', '100', '200', '500'].map((amount) => (
+                        <TouchableOpacity
+                          key={amount}
+                          style={styles.quickAmountButton}
+                          onPress={() => setWithdrawAmount(amount)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.quickAmountText}>{amount}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Withdraw Button */}
+                  <TouchableOpacity
+                    style={styles.modalButton}
+                    onPress={handleWithdraw}
+                    disabled={isWithdrawing}
+                  >
+                    <LinearGradient
+                      colors={['#10B981', '#059669']}
+                      style={styles.modalButtonGradient}
+                    >
+                      {isWithdrawing ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <Text style={styles.modalButtonText}>Request Withdrawal</Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* Error/Success Messages */}
+                  {(withdrawError || withdrawSuccess) && (
+                    <View style={[
+                      styles.passwordMessageBanner,
+                      withdrawError ? styles.passwordErrorBanner : styles.passwordSuccessBanner
+                    ]}>
+                      <Text style={[
+                        styles.passwordMessageText,
+                        withdrawError ? styles.passwordErrorText : styles.passwordSuccessText
+                      ]}>
+                        {withdrawError || withdrawSuccess}
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </View>
             </View>
           </KeyboardAvoidingView>
@@ -1005,5 +1384,223 @@ const styles = StyleSheet.create({
   },
   passwordErrorText: {
     color: '#991b1b',
+  },
+  // Balance Card Styles
+  balanceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+    marginBottom: 8,
+  },
+  balanceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  balanceHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  balanceHeaderText: {
+    marginLeft: 12,
+  },
+  balanceLabel: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 6,
+  },
+  balanceAmount: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  balanceLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  balanceLoadingText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  balanceErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  balanceErrorText: {
+    fontSize: 13,
+    color: '#EF4444',
+  },
+  retrySmallButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  retrySmallButtonText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  withdrawButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  withdrawButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  withdrawButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  // Section Header Styles
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  viewAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  // Transactions Card Styles
+  transactionsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  transactionsLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 12,
+  },
+  transactionsLoadingText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  transactionsEmpty: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  transactionsEmptyText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginTop: 12,
+  },
+  transactionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  transactionItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  transactionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  transactionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  transactionDetails: {
+    flex: 1,
+  },
+  transactionType: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 2,
+  },
+  transactionDate: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  transactionRight: {
+    alignItems: 'flex-end',
+  },
+  transactionAmount: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  transactionStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  transactionStatusText: {
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  // Quick Amounts Styles
+  quickAmountsContainer: {
+    marginBottom: 18,
+  },
+  quickAmountsLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  quickAmountsButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickAmountButton: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  quickAmountText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
   },
 });
