@@ -41,7 +41,9 @@
     "plugins": [
       [
         "expo-router",
-        { "origin": "https://delivery.gebeta.com/" }
+        {
+          "origin": "https://delivery.gebeta.com/"
+        }
       ],
       [
         "expo-location",
@@ -52,7 +54,9 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan QR codes for order verification."
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan QR codes for order verification.",
+          "microphonePermission": "This app does not use the microphone.",
+          "enableBarcodeScanning": true
         }
       ],
       [
@@ -60,19 +64,28 @@
         {
           "android": {
             "usesCleartextTraffic": true,
-            "googleServicesFile": "./android/app/google-services.json"
+            "googleServicesFile": "./android/app/google-services.json",
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 24,
+            "kotlinVersion": "1.9.23"
           }
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-barcode-scanner"
     ],
     "assetBundlePatterns": [
       "assets/images/**/*",
       "assets/fonts/**/*"
     ],
     "extra": {
-      "router": { "origin": "https://delivery.gebeta.com/" },
-      "eas": { "projectId": "a1342bd9-7823-4284-9bc1-a70e0ce44fd9" }
+      "router": {
+        "origin": "https://delivery.gebeta.com/"
+      },
+      "eas": {
+        "projectId": "a1342bd9-7823-4284-9bc1-a70e0ce44fd9"
+      }
     }
   }
 }
