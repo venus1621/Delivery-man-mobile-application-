@@ -67,13 +67,11 @@
             "googleServicesFile": "./android/app/google-services.json",
             "compileSdkVersion": 36,
             "targetSdkVersion": 36,
-            "minSdkVersion": 24,
-            "kotlinVersion": "1.9.23"
+            "minSdkVersion": 24
           }
         }
       ],
-      "expo-web-browser",
-      "expo-barcode-scanner"
+      "expo-web-browser"
     ],
     "assetBundlePatterns": [
       "assets/images/**/*",
