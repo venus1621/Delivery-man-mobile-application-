@@ -130,12 +130,12 @@ export const getTransactionHistory = async (token) => {
 /**
  * Format currency for Ethiopian Birr
  * @param {number} amount - Amount to format
- * @returns {string} Formatted currency string
+ * @returns {string} Formatted currency string (e.g., "ETB 1,234.56")
  */
 export const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-ET', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    style: 'currency',
+    currency: 'ETB'
   }).format(amount || 0);
 };
 
@@ -207,5 +207,7 @@ export const formatDateTime = (dateString) => {
     hour12: true,
   });
 };
+
+
 
 

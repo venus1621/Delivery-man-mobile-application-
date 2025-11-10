@@ -14,6 +14,14 @@ import { DollarSign, TrendingUp, Calendar, Award, ArrowLeft } from 'lucide-react
 import { useDelivery } from '../providers/delivery-provider';
 import { router } from 'expo-router';
 
+// Helper function to format Ethiopian currency
+const formatETB = (amount) => {
+  return new Intl.NumberFormat('en-ET', {
+    style: 'currency',
+    currency: 'ETB'
+  }).format(amount || 0);
+};
+
 export default function EarningsScreen() {
   const { 
     deliveryHistory, 
@@ -166,7 +174,7 @@ export default function EarningsScreen() {
             style={styles.highlightCard}
           >
             <Text style={styles.highlightLabel}>Today's Earnings</Text>
-            <Text style={styles.highlightAmount}>ETB {todayStats.total.toFixed(2)}</Text>
+            <Text style={styles.highlightAmount}>{formatETB(todayStats.total)}</Text>
             <View style={styles.highlightStats}>
               <View style={styles.highlightStat}>
                 <Text style={styles.highlightStatValue}>{todayStats.count}</Text>
@@ -175,7 +183,7 @@ export default function EarningsScreen() {
               <View style={styles.highlightDivider} />
               <View style={styles.highlightStat}>
                 <Text style={styles.highlightStatValue}>
-                  ETB {todayStats.average.toFixed(2)}
+                  {formatETB(todayStats.average)}
                 </Text>
                 <Text style={styles.highlightStatLabel}>Avg/Delivery</Text>
               </View>
@@ -195,12 +203,12 @@ export default function EarningsScreen() {
               </View>
               <View style={styles.periodInfo}>
                 <Text style={styles.periodLabel}>This Week</Text>
-                <Text style={styles.periodAmount}>ETB {weekStats.total.toFixed(2)}</Text>
+                <Text style={styles.periodAmount}>{formatETB(weekStats.total)}</Text>
               </View>
             </View>
             <View style={styles.periodStats}>
               <Text style={styles.periodStatText}>{weekStats.count} deliveries</Text>
-              <Text style={styles.periodStatText}>ETB {weekStats.average.toFixed(2)} avg</Text>
+              <Text style={styles.periodStatText}>{formatETB(weekStats.average)} avg</Text>
             </View>
           </View>
 
@@ -212,12 +220,12 @@ export default function EarningsScreen() {
               </View>
               <View style={styles.periodInfo}>
                 <Text style={styles.periodLabel}>This Month</Text>
-                <Text style={styles.periodAmount}>ETB {monthStats.total.toFixed(2)}</Text>
+                <Text style={styles.periodAmount}>{formatETB(monthStats.total)}</Text>
               </View>
             </View>
             <View style={styles.periodStats}>
               <Text style={styles.periodStatText}>{monthStats.count} deliveries</Text>
-              <Text style={styles.periodStatText}>ETB {monthStats.average.toFixed(2)} avg</Text>
+              <Text style={styles.periodStatText}>{formatETB(monthStats.average)} avg</Text>
             </View>
           </View>
 
@@ -229,12 +237,12 @@ export default function EarningsScreen() {
               </View>
               <View style={styles.periodInfo}>
                 <Text style={styles.periodLabel}>All Time</Text>
-                <Text style={styles.periodAmount}>ETB {allTimeStats.total.toFixed(2)}</Text>
+                <Text style={styles.periodAmount}>{formatETB(allTimeStats.total)}</Text>
               </View>
             </View>
             <View style={styles.periodStats}>
               <Text style={styles.periodStatText}>{allTimeStats.count} deliveries</Text>
-              <Text style={styles.periodStatText}>ETB {allTimeStats.average.toFixed(2)} avg</Text>
+              <Text style={styles.periodStatText}>{formatETB(allTimeStats.average)} avg</Text>
             </View>
           </View>
         </View>
@@ -249,7 +257,7 @@ export default function EarningsScreen() {
           >
             <View style={styles.breakdownRow}>
               <Text style={styles.breakdownLabel}>Delivery Fees</Text>
-              <Text style={styles.breakdownAmount}>ETB {totalDeliveryFees.toFixed(2)}</Text>
+              <Text style={styles.breakdownAmount}>{formatETB(totalDeliveryFees)}</Text>
             </View>
           </LinearGradient>
 
@@ -259,14 +267,14 @@ export default function EarningsScreen() {
           >
             <View style={styles.breakdownRow}>
               <Text style={styles.breakdownLabel}>Tips</Text>
-              <Text style={styles.breakdownAmount}>ETB {totalTips.toFixed(2)}</Text>
+              <Text style={styles.breakdownAmount}>{formatETB(totalTips)}</Text>
             </View>
           </LinearGradient>
 
           <View style={styles.totalCard}>
             <View style={styles.breakdownRow}>
               <Text style={styles.totalLabel}>Total Earnings</Text>
-              <Text style={styles.totalAmount}>ETB {(totalDeliveryFees + totalTips).toFixed(2)}</Text>
+              <Text style={styles.totalAmount}>{formatETB(totalDeliveryFees + totalTips)}</Text>
             </View>
           </View>
         </View>

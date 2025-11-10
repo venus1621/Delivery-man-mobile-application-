@@ -110,7 +110,7 @@ export default function OrdersScreen() {
     
     Alert.alert(
       'Accept Order',
-      `Do you want to accept this order?\n\nOrder: ${order.code}\nRestaurant: ${order.restaurantName}\nDistance: ${getOrderDistance(order)} km\nEarnings: ETB ${totalEarnings.toFixed(2)}`,
+      `Do you want to accept this order?\n\nOrder: ${order.code}\nRestaurant: ${order.restaurantName}\nDistance: ${getOrderDistance(order)} km\nEarnings: ${formatCurrency(totalEarnings)}`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -310,9 +310,9 @@ const getOrderPriority = (order) => {
   // Format currency for Ethiopian Birr
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-ET', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
+      style: 'currency',
+      currency: 'ETB'
+    }).format(amount || 0);
   };
 
   // Note: Removed offline check - users can VIEW orders while offline
@@ -474,7 +474,7 @@ const getOrderPriority = (order) => {
                   </View>
                   <View style={styles.orderEarnings}>
                     <Text style={styles.earningsAmount}>
-                      ETB {formatCurrency(totalEarnings)}
+                      {formatCurrency(totalEarnings)}
                     </Text>
                     <Text style={styles.earningsLabel}>Total Earnings</Text>
                   </View>
@@ -521,18 +521,18 @@ const getOrderPriority = (order) => {
                 <View style={styles.earningsBreakdown}>
                   <View style={styles.breakdownItem}>
                     <Text style={styles.breakdownLabel}>Delivery Fee</Text>
-                    <Text style={styles.breakdownValue}>ETB {formatCurrency(order.deliveryFee || 0)}</Text>
+                    <Text style={styles.breakdownValue}>{formatCurrency(order.deliveryFee || 0)}</Text>
                   </View>
                   <View style={styles.breakdownDivider} />
                   <View style={styles.breakdownItem}>
                     <Text style={styles.breakdownLabel}>Tip</Text>
-                    <Text style={styles.breakdownValue}>ETB {formatCurrency(order.tip || 0)}</Text>
+                    <Text style={styles.breakdownValue}>{formatCurrency(order.tip || 0)}</Text>
                   </View>
                   <View style={styles.breakdownDivider} />
                   <View style={styles.breakdownItem}>
                     <Text style={[styles.breakdownLabel, styles.breakdownTotalLabel]}>Total</Text>
                     <Text style={[styles.breakdownValue, styles.breakdownTotalValue]}>
-                      ETB {formatCurrency(totalEarnings)}
+                      {formatCurrency(totalEarnings)}
                     </Text>
                   </View>
                 </View>

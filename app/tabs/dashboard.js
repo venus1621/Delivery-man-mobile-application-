@@ -23,6 +23,14 @@ import VerificationModal from '../../components/VerificationModal';
 
 const { width } = Dimensions.get('window');
 
+// Helper function to format Ethiopian currency
+const formatETB = (amount) => {
+  return new Intl.NumberFormat('en-ET', {
+    style: 'currency',
+    currency: 'ETB'
+  }).format(amount || 0);
+};
+
 export default function DashboardScreen() {
   const { 
     isConnected, 
@@ -366,7 +374,7 @@ export default function DashboardScreen() {
               <DollarSign color="#FFFFFF" size={24} />
             </View>
             <Text style={styles.statNumber}>
-              ETB {(todayEarnings || 0).toFixed(2)}
+              {formatETB(todayEarnings)}
             </Text>
             <Text style={styles.statLabel}>Today's Earnings</Text>
             {orderHistory && orderHistory.length > 0 && (
@@ -385,7 +393,7 @@ export default function DashboardScreen() {
             <Text style={styles.statLabel}>Today's Deliveries</Text>
             {todayDeliveries > 0 && todayEarnings > 0 && (
               <Text style={styles.statHint}>
-                Avg: ETB {(todayEarnings / todayDeliveries).toFixed(2)}
+                Avg: {formatETB(todayEarnings / todayDeliveries)}
               </Text>
             )}
           </LinearGradient>
@@ -402,8 +410,7 @@ export default function DashboardScreen() {
               <Text style={styles.totalEarningsTitle}>Total Earnings</Text>
             </View>
             <Text style={styles.totalEarningsAmount}>
-              ETB {(totalEarnings || 0)
-                .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatETB(totalEarnings)}
             </Text>
             <Text style={styles.totalEarningsSubtitle}>
               {orderHistory && orderHistory.length > 0 
@@ -451,7 +458,7 @@ export default function DashboardScreen() {
                     <View style={styles.activeOrderInfoRow}>
                       <Text style={styles.activeOrderLabel}>Total Earnings:</Text>
                       <Text style={styles.activeOrderEarnings}>
-                        ETB {(order.deliveryFee + order.tip).toFixed(2)}
+                        {formatETB(order.deliveryFee + order.tip)}
                       </Text>
                     </View>
                   </View>

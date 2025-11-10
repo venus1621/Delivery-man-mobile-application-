@@ -194,7 +194,7 @@ export default function TransactionHistoryScreen() {
               <Wallet color="#FFFFFF" size={24} />
               <Text style={styles.balanceLabel}>Current Balance</Text>
             </View>
-            <Text style={styles.balanceAmount}>ETB {formatCurrency(totalBalance)}</Text>
+            <Text style={styles.balanceAmount}>{formatCurrency(totalBalance)}</Text>
             {requesterType && (
               <Text style={styles.requesterType}>{requesterType} Account</Text>
             )}
@@ -207,7 +207,7 @@ export default function TransactionHistoryScreen() {
             <View style={styles.statIconContainer}>
               <TrendingUp color="#10B981" size={20} />
             </View>
-            <Text style={styles.statValue}>ETB {formatCurrency(stats.totalDeposits)}</Text>
+            <Text style={styles.statValue}>{formatCurrency(stats.totalDeposits)}</Text>
             <Text style={styles.statLabel}>Total Deposits</Text>
             <Text style={styles.statCount}>{stats.depositCount} transactions</Text>
           </View>
@@ -216,7 +216,7 @@ export default function TransactionHistoryScreen() {
             <View style={[styles.statIconContainer, { backgroundColor: '#FEE2E2' }]}>
               <TrendingDown color="#EF4444" size={20} />
             </View>
-            <Text style={styles.statValue}>ETB {formatCurrency(stats.totalWithdrawals)}</Text>
+            <Text style={styles.statValue}>{formatCurrency(stats.totalWithdrawals)}</Text>
             <Text style={styles.statLabel}>Total Withdrawals</Text>
             <Text style={styles.statCount}>{stats.withdrawalCount} transactions</Text>
           </View>
@@ -351,7 +351,7 @@ export default function TransactionHistoryScreen() {
                       ]}
                     >
                       {transaction.type === 'Deposit' ? '+' : '-'}
-                      ETB {formatCurrency(transaction.amount)}
+                      {formatCurrency(transaction.amount)}
                     </Text>
                     <View
                       style={[
@@ -367,7 +367,7 @@ export default function TransactionHistoryScreen() {
                       </Text>
                     </View>
                     <Text style={styles.transactionBalance}>
-                      Balance: ETB {formatCurrency(transaction.currentBalance)}
+                      Balance: {formatCurrency(transaction.currentBalance)}
                     </Text>
                   </View>
                 </View>

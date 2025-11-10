@@ -196,7 +196,10 @@ export default function HistoryScreen() {
   };
 
   const formatCurrency = (amount) => {
-    return `ETB ${amount.toFixed(2)}`;
+    return new Intl.NumberFormat('en-ET', {
+      style: 'currency',
+      currency: 'ETB'
+    }).format(amount || 0);
   };
 
   const formatDate = (dateString) => {

@@ -30,6 +30,14 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useDelivery } from '../../providers/delivery-provider';
 import { useAuth } from '../../providers/auth-provider';
 
+// Helper function to format Ethiopian currency
+const formatETB = (amount) => {
+  return new Intl.NumberFormat('en-ET', {
+    style: 'currency',
+    currency: 'ETB'
+  }).format(amount || 0);
+};
+
 export default function OrderDetailsScreen() {
   const { orderId } = useLocalSearchParams();
   const { activeOrder, verifyDelivery, completeOrder, isLoadingActiveOrder } = useDelivery();
@@ -461,29 +469,29 @@ console.log(order)
               <DollarSign color="#6B7280" size={16} />
               <Text style={styles.paymentLabel}>Delivery Fee:</Text>
               <Text style={styles.paymentValue}>
-                ETB {(() => {
+                {formatETB((() => {
                   const fee = order.deliveryFee;
-                  if (typeof fee === 'number') return fee.toFixed(2);
-                  if (fee?.$numberDecimal) return parseFloat(fee.$numberDecimal).toFixed(2);
-                  return '0.00';
-                })()}
+                  if (typeof fee === 'number') return fee;
+                  if (fee?.$numberDecimal) return parseFloat(fee.$numberDecimal);
+                  return 0;
+                })())}
               </Text>
             </View>
             <View style={styles.paymentRow}>
               <Text style={styles.paymentLabel}>Tip:</Text>
               <Text style={styles.paymentValue}>
-                ETB {(() => {
+                {formatETB((() => {
                   const tipValue = order.tip;
-                  if (typeof tipValue === 'number') return tipValue.toFixed(2);
-                  if (tipValue?.$numberDecimal) return parseFloat(tipValue.$numberDecimal).toFixed(2);
-                  return '0.00';
-                })()}
+                  if (typeof tipValue === 'number') return tipValue;
+                  if (tipValue?.$numberDecimal) return parseFloat(tipValue.$numberDecimal);
+                  return 0;
+                })())}
               </Text>
             </View>
             <View style={[styles.paymentRow, styles.totalRow]}>
               <Text style={styles.totalLabel}>Total Earnings:</Text>
               <Text style={styles.totalValue}>
-                ETB {(() => {
+                {formatETB((() => {
                   const extractNumber = (val) => {
                     if (typeof val === 'number') return val;
                     if (val?.$numberDecimal) return parseFloat(val.$numberDecimal);
@@ -492,8 +500,8 @@ console.log(order)
                   const fee = extractNumber(order.deliveryFee);
                   const tipVal = extractNumber(order.tip);
                   const total = extractNumber(order.grandTotal) || (fee + tipVal);
-                  return total.toFixed(2);
-                })()}
+                  return total;
+                })())}
               </Text>
             </View>
           </View>

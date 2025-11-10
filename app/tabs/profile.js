@@ -540,7 +540,7 @@ export default function ProfileScreen() {
                     </View>
                   ) : (
                     <Text style={styles.balanceAmount}>
-                      ETB {balance ? formatCurrency(balance.amount) : '0.00'}
+                      {balance ? formatCurrency(balance.amount) : formatCurrency(0)}
                     </Text>
                   )}
                 </View>
@@ -626,7 +626,7 @@ export default function ProfileScreen() {
                         style={[styles.transactionAmount, { color: typeColor }]}
                       >
                         {transaction.type === 'Deposit' ? '+' : '-'}
-                        ETB {formatCurrency(transaction.amount)}
+                        {formatCurrency(transaction.amount)}
                       </Text>
                       <View
                         style={[
@@ -918,7 +918,7 @@ export default function ProfileScreen() {
 
                 <View style={styles.modalBody}>
                   <Text style={styles.modalDescription}>
-                    Enter the amount you want to withdraw. Your current balance is ETB {balance ? formatCurrency(balance.amount) : '0.00'}.
+                    Enter the amount you want to withdraw. Your current balance is {balance ? formatCurrency(balance.amount) : formatCurrency(0)}.
                   </Text>
 
                   {/* Amount Input */}
