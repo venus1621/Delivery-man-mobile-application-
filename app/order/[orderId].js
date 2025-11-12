@@ -156,19 +156,31 @@ console.log(order)
 
 
   const handleNavigateToRestaurant = () => {
-       console.log('🔍 Navigating to restaurant:',order);
-    if (order.restaurantLocation.coordinates[0] && order.restaurantLocation.coordinates[1]) {
-      const lat = order.restaurantLocation.coordinates[0]; 
-      const lng = order.restaurantLocation.coordinates[1];
+    console.log('🔍 Navigating to restaurant:', order);
+    
+    // Get restaurant location - handle both object format and coordinates array
+    let lat, lng;
+    
+    if (order.restaurantLocation) {
+      // Check if location is already transformed to {lat, lng} format
+      if (order.restaurantLocation.lat !== undefined && order.restaurantLocation.lng !== undefined) {
+        lat = order.restaurantLocation.lat;
+        lng = order.restaurantLocation.lng;
+      } 
+      // Check if coordinates array exists [lng, lat]
+      else if (order.restaurantLocation.coordinates && order.restaurantLocation.coordinates.length >= 2) {
+        lng = order.restaurantLocation.coordinates[0]; // longitude is first in backend [lng, lat]
+        lat = order.restaurantLocation.coordinates[1]; // latitude is second in backend [lng, lat]
+      }
+    }
 
-   
-      
+    if (lat && lng) {
       // Navigate to map screen with restaurant location
       const restaurantLocation = JSON.stringify({
-        lat: lat,
-        lng: lng,
-        name: order.restaurantLocation.name || order.restaurantName || 'Restaurant',
-        address: order.restaurantLocation.address || 'Restaurant Address'
+        lat: Number(lat),
+        lng: Number(lng),
+        name: order.restaurantLocation?.name || order.restaurantName || 'Restaurant',
+        address: order.restaurantLocation?.address || 'Restaurant Address'
       });
       
       console.log('📍 Restaurant location data:', restaurantLocation);
@@ -185,18 +197,40 @@ console.log(order)
   };
 
   const handleNavigateToDelivery = () => {
-
     console.log('🔍 Navigating to delivery location');
-    console.log('🔍 Delivery location data:', order?.destinationLocation.coordinates);
-    if (order?.destinationLocation.coordinates) {
+    console.log('🔍 Order data:', order);
     
+    // Get delivery location - check multiple possible field names
+    const deliveryLocationData = order?.destinationLocation || order?.deliveryLocation || order?.deliverLocation;
+    
+    if (!deliveryLocationData) {
+      Alert.alert('Error', 'Delivery location not available');
+      return;
+    }
+    
+    let lat, lng;
+    
+    // Check if location is already transformed to {lat, lng} format
+    if (deliveryLocationData.lat !== undefined && deliveryLocationData.lng !== undefined) {
+      lat = deliveryLocationData.lat;
+      lng = deliveryLocationData.lng;
+    } 
+    // Check if coordinates array exists [lng, lat]
+    else if (deliveryLocationData.coordinates && deliveryLocationData.coordinates.length >= 2) {
+      lng = deliveryLocationData.coordinates[0]; // longitude is first in backend [lng, lat]
+      lat = deliveryLocationData.coordinates[1]; // latitude is second in backend [lng, lat]
+    }
+    
+    if (lat && lng) {
       // Navigate to map screen with delivery location
       const deliveryLocation = JSON.stringify({
-        lat: order?.destinationLocation.coordinates[0],
-        lng: order?.destinationLocation.coordinates[1],
+        lat: Number(lat),
+        lng: Number(lng),
         name: 'Delivery Location',
-        address: order.destinationLocation.address || 'Delivery Address'
+        address: deliveryLocationData.address || 'Delivery Address'
       });
+      
+      console.log('📍 Delivery location data:', deliveryLocation);
       
       router.push({
         pathname: '/map',

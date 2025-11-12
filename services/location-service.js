@@ -1,5 +1,6 @@
 import * as Location from 'expo-location';
 import { useState, useEffect, useRef } from 'react';
+import { logger } from '../utils/logger';
 
 class LocationService {
   constructor() {
@@ -44,7 +45,7 @@ class LocationService {
 
       // Request background permissions for continuous tracking
       const backgroundStatus = await Location.requestBackgroundPermissionsAsync();
-      console.log('Background location permission:', backgroundStatus.status);
+      logger.log('Background location permission:', backgroundStatus.status);
 
       this.isTracking = true;
 
@@ -77,7 +78,7 @@ class LocationService {
         }
       );
 
-      console.log('📍 Location tracking started');
+      logger.log('📍 Location tracking started');
     } catch (error) {
       console.error('Error starting location tracking:', error);
       this.isTracking = false;
@@ -109,7 +110,7 @@ class LocationService {
       this.watchId = null;
     }
     this.isTracking = false;
-    console.log('📍 Location tracking stopped');
+    logger.log('📍 Location tracking stopped');
   }
 
   // Update location and notify subscribers

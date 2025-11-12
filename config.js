@@ -5,6 +5,8 @@
  * embedded directly in the code instead of using external .env files
  */
 
+import { logger } from './utils/logger';
+
 // ==================== FIREBASE CONFIGURATION ====================
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBOR6P6mCqgH5nleU09l9iQEk2K9Nq9OeA',
@@ -169,16 +171,12 @@ const validateFirebaseConfig = () => {
   );
 
   if (missingFields.length > 0) {
-    console.error(
-      '❌ Missing Firebase configuration fields:',
-      missingFields
-    );
     throw new Error(
       `Missing required Firebase config fields: ${missingFields.join(', ')}`
     );
   }
 
-  console.log('✅ Firebase configuration validated successfully');
+  logger.log('✅ Firebase configuration validated successfully');
 };
 
 // Run validation on app startup

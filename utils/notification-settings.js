@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
+import { logger } from './logger';
 
 /**
  * Check if notification sounds are enabled
@@ -25,13 +26,13 @@ export const playNotificationSound = async (soundFile = null) => {
     const isEnabled = await isNotificationSoundEnabled();
     
     if (!isEnabled) {
-      console.log('🔕 Notification sound is muted by user settings');
+      logger.log('🔕 Notification sound is muted by user settings');
       return;
     }
 
     // Play default notification sound or custom sound
     // For now, we'll use the system notification sound
-    console.log('🔔 Playing notification sound...');
+    logger.log('🔔 Playing notification sound...');
     
     // You can implement actual sound playing logic here
     // For example, using expo-av:
@@ -52,7 +53,7 @@ export const playNotificationSound = async (soundFile = null) => {
 export const setNotificationSoundEnabled = async (enabled) => {
   try {
     await AsyncStorage.setItem('notificationSoundEnabled', enabled.toString());
-    console.log(`🔔 Notification sounds ${enabled ? 'enabled' : 'muted'}`);
+    logger.log(`🔔 Notification sounds ${enabled ? 'enabled' : 'muted'}`);
   } catch (error) {
     console.error('Error setting notification sound preference:', error);
   }

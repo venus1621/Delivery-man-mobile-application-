@@ -15,6 +15,7 @@ import { useAuth } from "./auth-provider";
 import locationService from "../services/location-service";
 import { ref, update, push, set } from 'firebase/database';
 import { database } from '../firebase';
+import { transformOrderLocations, transformOrdersLocations } from '../utils/location-utils';
 
 // 💰 Helper function to extract number from various formats (including MongoDB Decimal128)
 const extractNumber = (value) => {
@@ -636,31 +637,33 @@ export const DeliveryProvider = ({ children }) => {
     // 🍲 New order notifications from backend (based on your notifyDeliveryGroup function)
     socket.on("deliveryMessage", (orderData) => {
       console.log("🚚 New delivery order received:", orderData);
-      console.log("📍 Restaurant Location:", orderData.restaurantLocation);
-      console.log("📍 Delivery Location:", orderData.deliveryLocation);
+      console.log("📍 Restaurant Location (raw):", orderData.restaurantLocation);
+      console.log("📍 Delivery Location (raw):", orderData.deliveryLocation);
       
       // Play notification sound and vibrate
       playNewOrderNotification();
       
-      // Transform the order data to match our expected format
       // Extract MongoDB Decimal128 values
       const deliveryFee = extractNumber(orderData.deliveryFee);
       const tip = extractNumber(orderData.tip);
+      
+      // Transform locations from backend [lng, lat] format to app {lat, lng} format
+      const transformedOrderData = transformOrderLocations(orderData);
       
       const transformedOrder = {
         orderId: orderData.orderId,
         order_id: orderData.orderCode, // Map orderCode to order_id for consistency
         orderCode: orderData.orderCode,
-        restaurantLocation: {
+        restaurantLocation: transformedOrderData.restaurantLocation || {
           name: orderData.restaurantName,
-          address: orderData.restaurantLocation?.address || 'Restaurant Location',
-          lat: orderData.restaurantLocation?.lat || 0,
-          lng: orderData.restaurantLocation?.lng || 0,
+          address: 'Restaurant Location',
+          lat: 0,
+          lng: 0,
         },
-        deliveryLocation: {
-          lat: orderData.deliveryLocation?.lat || 0,
-          lng: orderData.deliveryLocation?.lng || 0,
-          address: orderData.deliveryLocation?.address || 'Delivery Location',
+        deliveryLocation: transformedOrderData.deliveryLocation || transformedOrderData.destinationLocation || {
+          lat: 0,
+          lng: 0,
+          address: 'Delivery Location',
         },
         deliveryFee: deliveryFee,
         tip: tip,
@@ -704,9 +707,10 @@ export const DeliveryProvider = ({ children }) => {
       // Play notification sound and vibrate
       playNewOrderNotification();
       
-      // Normalize order data to handle MongoDB Decimal128
+      // Transform locations from backend [lng, lat] format and normalize data
+      const transformedOrder = transformOrderLocations(order);
       const normalizedOrder = {
-        ...order,
+        ...transformedOrder,
         deliveryFee: extractNumber(order.deliveryFee),
         tip: extractNumber(order.tip),
       };
@@ -864,13 +868,16 @@ const fetchActiveOrder = useCallback(
       console.log(`📦 Fetched orders with status "${status}":`, data);
       
       if (response.ok && data.status === "success") {
-        // Normalize active order data to handle MongoDB Decimal128
+        // Transform locations and normalize active order data to handle MongoDB Decimal128
         const normalizedActiveOrders = Array.isArray(data.data) 
-          ? data.data.map(order => ({
-              ...order,
-              deliveryFee: extractNumber(order.deliveryFee),
-              tip: extractNumber(order.tip),
-            }))
+          ? data.data.map(order => {
+              const transformedOrder = transformOrderLocations(order);
+              return {
+                ...transformedOrder,
+                deliveryFee: extractNumber(order.deliveryFee),
+                tip: extractNumber(order.tip),
+              };
+            })
           : [];
         
         console.log(`✅ Loaded ${normalizedActiveOrders.length} fresh order(s) with status "${status}"`);
@@ -950,22 +957,28 @@ const fetchAllActiveOrders = useCallback(async () => {
     
     // Process Cooked orders
     if (cookedResponse.ok && cookedData.status === 'success' && Array.isArray(cookedData.data)) {
-      const normalized = cookedData.data.map(order => ({
-        ...order,
-        deliveryFee: extractNumber(order.deliveryFee),
-        tip: extractNumber(order.tip),
-      }));
+      const normalized = cookedData.data.map(order => {
+        const transformedOrder = transformOrderLocations(order);
+        return {
+          ...transformedOrder,
+          deliveryFee: extractNumber(order.deliveryFee),
+          tip: extractNumber(order.tip),
+        };
+      });
       allActiveOrders = [...allActiveOrders, ...normalized];
       console.log(`✅ Loaded ${normalized.length} Cooked order(s)`);
     }
     
     // Process Delivering orders
     if (deliveringResponse.ok && deliveringData.status === 'success' && Array.isArray(deliveringData.data)) {
-      const normalized = deliveringData.data.map(order => ({
-        ...order,
-        deliveryFee: extractNumber(order.deliveryFee),
-        tip: extractNumber(order.tip),
-      }));
+      const normalized = deliveringData.data.map(order => {
+        const transformedOrder = transformOrderLocations(order);
+        return {
+          ...transformedOrder,
+          deliveryFee: extractNumber(order.deliveryFee),
+          tip: extractNumber(order.tip),
+        };
+      });
       allActiveOrders = [...allActiveOrders, ...normalized];
       console.log(`✅ Loaded ${normalized.length} Delivering order(s)`);
       
@@ -1032,18 +1045,24 @@ const fetchAvailableOrders = useCallback(async () => {
     const data = await response.json();
  
     if (response.ok && data.status === "success") {
-      // ✅ Normalize the response into a simple, clean list
-      const normalizedOrders = data.data.map((order) => ({
-        id: order.orderId,
-        code: order.orderCode,
-        restaurantName: order.restaurantName,
-        restaurantCoordinates: order.restaurantLocation?.coordinates || [],
-        deliveryCoordinates: order.deliveryLocation?.coordinates || [],
-        deliveryFee: order.deliveryFee,
-        tip: order.tip,
-        total: order.grandTotal,
-        createdAt: new Date(order.createdAt).toLocaleString(),
-      }));
+      // ✅ Transform locations and normalize the response into a simple, clean list
+      const normalizedOrders = data.data.map((order) => {
+        const transformedOrder = transformOrderLocations(order);
+        return {
+          id: order.orderId,
+          code: order.orderCode,
+          restaurantName: order.restaurantName,
+          restaurantLocation: transformedOrder.restaurantLocation,
+          deliveryLocation: transformedOrder.deliveryLocation || transformedOrder.destinationLocation,
+          // Keep coordinates for backward compatibility (now in [lng, lat] format)
+          restaurantCoordinates: order.restaurantLocation?.coordinates || [],
+          deliveryCoordinates: order.deliveryLocation?.coordinates || [],
+          deliveryFee: order.deliveryFee,
+          tip: order.tip,
+          total: order.grandTotal,
+          createdAt: new Date(order.createdAt).toLocaleString(),
+        };
+      });
 
       console.log(`✅ Loaded ${normalizedOrders.length} fresh available order(s)`);
 
@@ -1110,6 +1129,9 @@ const fetchAvailableOrders = useCallback(async () => {
           if (response && response.status === 'success') {
             console.log("✅ Order accepted successfully:", response);
             
+            // Transform locations from backend response
+            const transformedResponseData = transformOrderLocations(response.data || {});
+            
             // Store accepted order information using server response data
         const acceptedOrderData = {
           orderId: orderId,
@@ -1118,9 +1140,10 @@ const fetchAvailableOrders = useCallback(async () => {
               pickUpVerification: response.data?.pickUpVerification || 'N/A',
               message: response.message || 'Order accepted successfully',
           acceptedAt: new Date().toISOString(),
-              // Additional order details from server
-              restaurantLocation: response.data?.restaurantLocation,
-              deliveryLocation: response.data?.deliverLocation, // Note: server uses 'deliverLocation'
+              // Additional order details from server (with transformed locations)
+              restaurantLocation: transformedResponseData.restaurantLocation,
+              deliveryLocation: transformedResponseData.deliveryLocation || transformedResponseData.deliverLocation,
+              destinationLocation: transformedResponseData.destinationLocation || transformedResponseData.deliverLocation,
               deliveryFee: extractNumber(response.data?.deliveryFee),
               tip: extractNumber(response.data?.tip),
               distanceKm: response.data?.distanceKm || 0,
@@ -1133,8 +1156,9 @@ const fetchAvailableOrders = useCallback(async () => {
           deliveryPersonId,
           orderCode: response.data?.orderCode || `ORD-${orderId.slice(-6)}`,
           deliveryVerificationCode: response.data?.pickUpVerification || 'N/A',
-          restaurantLocation: response.data?.restaurantLocation,
-          deliveryLocation: response.data?.deliverLocation,
+          restaurantLocation: transformedResponseData.restaurantLocation,
+          deliveryLocation: transformedResponseData.deliveryLocation || transformedResponseData.deliverLocation,
+          destinationLocation: transformedResponseData.destinationLocation || transformedResponseData.deliverLocation,
           deliveryFee: extractNumber(response.data?.deliveryFee),
           tip: extractNumber(response.data?.tip),
           distanceKm: response.data?.distanceKm || 0,

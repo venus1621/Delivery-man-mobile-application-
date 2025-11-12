@@ -215,13 +215,25 @@ const getOrderPriority = (order) => {
 
   // Calculate distance for an order using coordinates
   const getOrderDistance = (order) => {
-    if (!userLocation || !order.restaurantCoordinates) {
+    if (!userLocation) {
       return 'N/A';
     }
     
     try {
-      // Coordinates are in [longitude, latitude] format
-      const [restLng, restLat] = order.restaurantCoordinates;
+      // Use transformed restaurantLocation object first, fallback to coordinates array
+      let restLat, restLng;
+      
+      if (order.restaurantLocation && order.restaurantLocation.lat && order.restaurantLocation.lng) {
+        // Use transformed location object {lat, lng}
+        restLat = order.restaurantLocation.lat;
+        restLng = order.restaurantLocation.lng;
+      } else if (order.restaurantCoordinates && order.restaurantCoordinates.length >= 2) {
+        // Fallback to coordinates array [lng, lat] format from backend
+        restLng = order.restaurantCoordinates[0];
+        restLat = order.restaurantCoordinates[1];
+      } else {
+        return 'N/A';
+      }
       
       const distance = calculateDistance(
         userLocation.latitude,
