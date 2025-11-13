@@ -23,7 +23,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         AsyncStorage.getItem('userRole'),
         AsyncStorage.getItem('userProfile'),
       ]);
-
+console.log(token);
       console.log('📱 Stored data found:');
       console.log('- Token:', token ? 'Present' : 'Missing');
       console.log('- User ID:', userId || 'Missing');

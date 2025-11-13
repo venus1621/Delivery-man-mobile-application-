@@ -28,6 +28,24 @@ const extractNumber = (value) => {
   return 0;
 };
 
+// 🔥 Helper function to remove undefined values from objects (Firebase doesn't accept undefined)
+const removeUndefinedFields = (obj) => {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  const cleaned = {};
+  for (const key in obj) {
+    if (obj[key] !== undefined) {
+      // Recursively clean nested objects
+      if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+        cleaned[key] = removeUndefinedFields(obj[key]);
+      } else {
+        cleaned[key] = obj[key];
+      }
+    }
+  }
+  return cleaned;
+};
+
 // 💵 Helper function to format currency safely
 const formatCurrency = (value) => {
   const num = extractNumber(value);
@@ -413,9 +431,13 @@ export const DeliveryProvider = ({ children }) => {
         };
         
         // Update delivery guy data and add to history
+        // Clean undefined values before sending to Firebase
+        const cleanedLocationData = removeUndefinedFields(locationData);
+        const cleanedHistoryEntry = removeUndefinedFields(historyEntry);
+        
         Promise.all([
-          update(deliveryGuyRef, locationData),
-          push(locationHistoryRef, historyEntry)
+          update(deliveryGuyRef, cleanedLocationData),
+          push(locationHistoryRef, cleanedHistoryEntry)
         ]).catch(error => {
           console.error('❌ Error updating delivery guy location in Firebase:', error);
         });
@@ -507,9 +529,13 @@ export const DeliveryProvider = ({ children }) => {
             
             // Update order data and add to history
             try {
+              // Clean undefined values before sending to Firebase
+              const cleanedOrderLocationData = removeUndefinedFields(orderLocationData);
+              const cleanedOrderHistoryEntry = removeUndefinedFields(orderHistoryEntry);
+              
               await Promise.all([
-                update(orderRef, orderLocationData),
-                push(orderLocationHistoryRef, orderHistoryEntry)
+                update(orderRef, cleanedOrderLocationData),
+                push(orderLocationHistoryRef, cleanedOrderHistoryEntry)
               ]);
              
               // Check proximity to destination and trigger alarm if close
@@ -833,7 +859,10 @@ const sendOrderStatusToFirebase = useCallback(async (orders) => {
         console.log(`⚠️ No current location available for order ${order.orderCode}`);
       }
 
-      await update(orderRef, orderData);
+      // Clean undefined values before sending to Firebase
+      const cleanedOrderData = removeUndefinedFields(orderData);
+      
+      await update(orderRef, cleanedOrderData);
       console.log(`✅ Order ${order.orderCode} (${orderStatus}) sent to Firebase successfully`);
       console.log(`🔥 Firebase path: deliveryOrders/${orderId}`);
       
@@ -1780,7 +1809,10 @@ const fetchDeliveryHistory = useCallback(async () => {
         ...additionalData
       };
 
-      await update(orderRef, statusUpdate);
+      // Clean undefined values before sending to Firebase
+      const cleanedStatusUpdate = removeUndefinedFields(statusUpdate);
+      
+      await update(orderRef, cleanedStatusUpdate);
       
       // Update local state
       setState((prev) => ({
@@ -1834,7 +1866,10 @@ const fetchDeliveryHistory = useCallback(async () => {
         }
       };
 
-      await update(orderRef, locationData);
+      // Clean undefined values before sending to Firebase
+      const cleanedLocationData = removeUndefinedFields(locationData);
+      
+      await update(orderRef, cleanedLocationData);
       console.log('📍 Manual location update sent to Firebase');
       return true;
     } catch (error) {
@@ -1892,7 +1927,10 @@ const fetchDeliveryHistory = useCallback(async () => {
         })
       };
 
-      await update(orderRef, initialData);
+      // Clean undefined values before sending to Firebase
+      const cleanedInitialData = removeUndefinedFields(initialData);
+      
+      await update(orderRef, cleanedInitialData);
       console.log('✅ Order tracking initialized successfully in Firebase');
       console.log('📍 Firebase Path: deliveryOrders/' + orderData.orderId);
       console.log('🔥 Customer can now track this order in real-time');
@@ -1951,9 +1989,13 @@ const fetchDeliveryHistory = useCallback(async () => {
         activeOrderId: state.activeOrder?.orderId || null
       };
       
+      // Clean undefined values before sending to Firebase
+      const cleanedLocationData = removeUndefinedFields(locationData);
+      const cleanedHistoryEntry = removeUndefinedFields(historyEntry);
+      
       await Promise.all([
-        update(deliveryGuyRef, locationData),
-        push(locationHistoryRef, historyEntry)
+        update(deliveryGuyRef, cleanedLocationData),
+        push(locationHistoryRef, cleanedHistoryEntry)
       ]);
       
       console.log('🔥 Manual delivery guy location sent to Firebase');
