@@ -60,7 +60,7 @@ export default function OrderDetailsScreen() {
   }, [activeOrder]);
 
 
-console.log(order)
+
 
   const handleVerifyAndComplete = async (code) => {
     if (isLocked) {
@@ -407,10 +407,12 @@ console.log(order)
               {order.restaurantName || order.restaurantLocation?.name || 'Restaurant'}
             </Text>
             <Text style={styles.locationAddress}>
-              {(typeof order?.restaurantLocation?.address === 'string' ? order.restaurantLocation.address : null) || 
-               (order?.restaurantLocation?.lat != null && order?.restaurantLocation?.lng != null ? 
-                 `Lat: ${Number(order.restaurantLocation.lat).toFixed(4)}, Lng: ${Number(order.restaurantLocation.lng).toFixed(4)}` : 
-                 'Restaurant Address')}
+              {(typeof order?.restaurantLocation?.address === 'string' ? order.restaurantLocation.address : null) 
+              // || 
+              //  (order?.restaurantLocation?.lat != null && order?.restaurantLocation?.lng != null ? 
+              //    `Lat: ${Number(order.restaurantLocation.lat).toFixed(4)}, Lng: ${Number(order.restaurantLocation.lng).toFixed(4)}` : 
+              //    'Restaurant Address')
+                 }
             </Text>
             
             <TouchableOpacity 
@@ -432,10 +434,8 @@ console.log(order)
               <Text style={styles.locationTitle}>Delivery Location</Text>
             </View>
             <Text style={styles.locationAddress}>
-              {(typeof order?.destinationLocation?.address === 'string' ? order.destinationLocation.address : null) || 
-               (order?.destinationLocation?.lat != null && order?.destinationLocation?.lng != null ? 
-                 `Lat: ${Number(order.destinationLocation.lat).toFixed(4)}, Lng: ${Number(order.destinationLocation.lng).toFixed(4)}` : 
-                 'Delivery Address')}
+              {(typeof order?.destinationLocation?.address === 'string' ? order.destinationLocation.address : null) 
+              }
             </Text>
             
             <TouchableOpacity 

@@ -14,7 +14,7 @@ import io from "socket.io-client";
 import { useAuth } from "./auth-provider";
 import locationService from "../services/location-service";
 import { ref, update, push, set } from 'firebase/database';
-import { database } from '../firebase';
+import { database, initFirebaseForActiveOrder, getSendDuration } from '../firebase';
 import { transformOrderLocations, transformOrdersLocations } from '../utils/location-utils';
 
 // 💰 Helper function to extract number from various formats (including MongoDB Decimal128)
@@ -29,18 +29,32 @@ const extractNumber = (value) => {
 };
 
 // 🔥 Helper function to remove undefined values from objects (Firebase doesn't accept undefined)
+// Note: Firebase accepts null values, so we only remove undefined
 const removeUndefinedFields = (obj) => {
   if (!obj || typeof obj !== 'object') return obj;
   
   const cleaned = {};
   for (const key in obj) {
-    if (obj[key] !== undefined) {
-      // Recursively clean nested objects
-      if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
-        cleaned[key] = removeUndefinedFields(obj[key]);
-      } else {
-        cleaned[key] = obj[key];
+    const value = obj[key];
+    
+    // Skip undefined values but keep null
+    if (value === undefined) {
+      continue;
+    }
+    
+    // Recursively clean nested objects (but not arrays)
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const cleanedNested = removeUndefinedFields(value);
+      // Only add if the cleaned object has properties
+      if (Object.keys(cleanedNested).length > 0) {
+        cleaned[key] = cleanedNested;
       }
+    } else if (Array.isArray(value)) {
+      // Keep arrays as is (coordinates arrays, etc.)
+      cleaned[key] = value;
+    } else {
+      // Keep all other values including null
+      cleaned[key] = value;
     }
   }
   return cleaned;
@@ -83,6 +97,7 @@ export const DeliveryProvider = ({ children }) => {
     isLocationTracking: false, // Location tracking status
     locationError: null, // Location error state
     socketError: null, // Last socket connection error (user friendly)
+    sendDurationInSeconds: 3, // Dynamic interval from Firebase config (default 3 seconds)
   });
 
   const socketRef = useRef(null);
@@ -93,6 +108,7 @@ export const DeliveryProvider = ({ children }) => {
   const soundObjectRef = useRef(null); // Ref for alarm sound object
   const notificationSoundRef = useRef(null); // Ref for new order notification sound
   const vibrationIntervalRef = useRef(null); // Ref for continuous vibration
+  const firebaseInitializedRef = useRef(false); // Prevent duplicate Firebase initialization
 
   // 📳 Start continuous vibration
   const startContinuousVibration = useCallback(() => {
@@ -384,10 +400,20 @@ export const DeliveryProvider = ({ children }) => {
       return;
     }
 
-    // Start interval to send location every 3 seconds
-    locationIntervalRef.current = setInterval(() => {
+    // Get the dynamic interval from state (in seconds) and convert to milliseconds
+    const intervalInMs = (state.sendDurationInSeconds || 3) * 1000;
+    console.log(`⏱️ Starting location tracking with interval: ${state.sendDurationInSeconds} seconds (${intervalInMs}ms)`);
+    
+    // Start interval to send location based on dynamic duration from backend
+    locationIntervalRef.current = setInterval(async () => {
       const currentLocation = locationService.getCurrentLocation();
       if (currentLocation) {
+        
+        // ✅ Check if Firebase database is initialized
+        if (!database) {
+          console.warn('⚠️ Firebase database not initialized, skipping location update');
+          return;
+        }
         
         // Check if activeOrder is an array (from dashboard) or single object (from state)
         // Define this early so we can use it in multiple places
@@ -395,8 +421,9 @@ export const DeliveryProvider = ({ children }) => {
                              (state.activeOrder ? [state.activeOrder] : []);
 
         // ALWAYS send to Firebase - direct delivery guy location tracking
-        const deliveryGuyRef = ref(database, `deliveryGuys/${userId}`);
-        const locationHistoryRef = ref(database, `deliveryGuys/${userId}/locationHistory`);
+        try {
+          const deliveryGuyRef = ref(database, `deliveryGuys/${userId}`);
+          const locationHistoryRef = ref(database, `deliveryGuys/${userId}/locationHistory`);
         
         // Update current location for delivery guy
         const locationData = {
@@ -435,13 +462,14 @@ export const DeliveryProvider = ({ children }) => {
         const cleanedLocationData = removeUndefinedFields(locationData);
         const cleanedHistoryEntry = removeUndefinedFields(historyEntry);
         
-        Promise.all([
-          update(deliveryGuyRef, cleanedLocationData),
-          push(locationHistoryRef, cleanedHistoryEntry)
-        ]).catch(error => {
+          await Promise.all([
+            update(deliveryGuyRef, cleanedLocationData),
+            push(locationHistoryRef, cleanedHistoryEntry)
+          ]);
+        } catch (error) {
           console.error('❌ Error updating delivery guy location in Firebase:', error);
-        });
-        
+          console.error('Error details:', error.message);
+        }
        
         // SEND TO ORDER-SPECIFIC FIREBASE PATH (for customer tracking)
         // This works INDEPENDENTLY of socket status - if there's an active order, send location
@@ -466,16 +494,49 @@ export const DeliveryProvider = ({ children }) => {
             const orderLocationHistoryRef = ref(database, `deliveryOrders/${orderId}/locationHistory`);
             
             // Update current location for specific order
-            // Only include fields that are defined (Firebase doesn't accept undefined)
+            // ✅ Match backend Firebase structure format
             const orderLocationData = {
-              orderId: orderId,
+              orderId: orderId.toString(),
+              userId: order.userId?._id?.toString() || order.userId?.toString() || order.customerId?.toString() || 'unknown',
+              deliveryPersonId: userId.toString(),
               orderCode: order.orderCode || `ORD-${orderId.slice(-6)}`,
-              deliveryLocation: {
+              orderStatus: order.orderStatus || order.status || 'Delivering',
+              
+              // Current delivery person location
+              currentDeliveryLocation: {
                 latitude: currentLocation.latitude,
                 longitude: currentLocation.longitude,
                 accuracy: currentLocation.accuracy,
                 timestamp: currentLocation.timestamp
               },
+              
+              // Restaurant location in GeoJSON format
+              restaurantLocation: order.restaurantLocation ? {
+                type: order.restaurantLocation.type || 'Point',
+                coordinates: order.restaurantLocation.coordinates || [
+                  order.restaurantLocation.lng || order.restaurantLocation.longitude || 0,
+                  order.restaurantLocation.lat || order.restaurantLocation.latitude || 0
+                ]
+              } : null,
+              
+              // Destination location in GeoJSON format
+              destinationLocation: order.destinationLocation ? {
+                type: order.destinationLocation.type || 'Point',
+                coordinates: order.destinationLocation.coordinates || [
+                  order.destinationLocation.lng || order.destinationLocation.longitude || 0,
+                  order.destinationLocation.lat || order.destinationLocation.latitude || 0
+                ]
+              } : (order.deliveryLocation ? {
+                type: order.deliveryLocation.type || 'Point',
+                coordinates: order.deliveryLocation.coordinates || [
+                  order.deliveryLocation.lng || order.deliveryLocation.longitude || 0,
+                  order.deliveryLocation.lat || order.deliveryLocation.latitude || 0
+                ]
+              } : null),
+              
+              deliveryVehicle: order.deliveryVehicle || user?.deliveryMethod || 'Unknown',
+              pickUpVerification: order.pickUpVerificationCode || order.pickUpVerification || null,
+              
               lastLocationUpdate: new Date().toISOString(),
               deliveryPerson: {
                 id: userId,
@@ -483,29 +544,14 @@ export const DeliveryProvider = ({ children }) => {
                 phone: user?.phone || 'N/A',
                 deliveryMethod: user?.deliveryMethod || 'N/A'
               },
-              status: order.orderStatus || order.status || 'Delivering',
-              orderStatus: order.orderStatus || 'Delivering',
               trackingEnabled: true,
-              deliveryFee: order.deliveryFee || 0,
-              tip: order.tip || 0,
+              deliveryFee: extractNumber(order.deliveryFee),
+              tip: extractNumber(order.tip),
             };
             
             // Add optional fields only if they exist
             if (order.restaurantName) {
               orderLocationData.restaurantName = order.restaurantName;
-            }
-            if (order.restaurantLocation) {
-              orderLocationData.restaurantLocation = order.restaurantLocation;
-            }
-            if (order.destinationLocation) {
-              orderLocationData.customerLocation = order.destinationLocation;
-            } else if (order.deliveryLocation) {
-              orderLocationData.customerLocation = order.deliveryLocation;
-            } else if (order.deliverLocation) {
-              orderLocationData.customerLocation = order.deliverLocation;
-            }
-            if (order.pickUpVerificationCode) {
-              orderLocationData.pickUpVerificationCode = order.pickUpVerificationCode;
             }
             if (order.userName) {
               orderLocationData.customerName = order.userName;
@@ -537,11 +583,16 @@ export const DeliveryProvider = ({ children }) => {
                 update(orderRef, cleanedOrderLocationData),
                 push(orderLocationHistoryRef, cleanedOrderHistoryEntry)
               ]);
+              
+              // Log successful update for debugging
+              console.log(`📍 Location updated for order ${order.orderCode || orderId}`);
              
               // Check proximity to destination and trigger alarm if close
               await checkProximityAndAlert(order, currentLocation, orderId);
             } catch (error) {
-              console.error('❌ Error updating order location:', orderId, error.message);
+              console.error('❌ Error updating order location:', orderId);
+              console.error('Error details:', error.message);
+              console.error('Full error:', error);
             }
           });
           
@@ -556,7 +607,7 @@ export const DeliveryProvider = ({ children }) => {
           console.log('⚠️ No active orders - order tracking not sent');
         }
       }
-    }, 3000); // Every 3 seconds
+    }, intervalInMs); // Dynamic interval from backend (in milliseconds)
 
     // Cleanup interval on unmount or dependency change
     return () => {
@@ -565,30 +616,73 @@ export const DeliveryProvider = ({ children }) => {
         locationIntervalRef.current = null;
       }
     };
-  }, [userId, state.isLocationTracking, state.isOnline, state.activeOrder, user, checkProximityAndAlert]);
+  }, [userId, state.isLocationTracking, state.isOnline, state.activeOrder, user, checkProximityAndAlert, state.sendDurationInSeconds]);
 
   // 🔥 Monitor activeOrder changes and send "Delivering" orders to Firebase
   useEffect(() => {
     const checkAndSendToFirebase = async () => {
-      if (!state.activeOrder || !userId) return;
-      
+      if (!state.activeOrder || !userId) {
+        console.log('⚠️ No active order or userId, skipping Firebase sync');
+        return;
+      }
+
+      // Initialize Firebase for active order (only once)
+      if (state.activeOrder && token && !firebaseInitializedRef.current) {
+        try {
+          console.log('🔥 Initializing Firebase for active order...');
+          const { database: firebaseDb, sendDurationInSeconds } = await initFirebaseForActiveOrder(token);
+          
+          if (!firebaseDb) {
+            throw new Error('Failed to initialize Firebase database');
+          }
+          
+          // Mark as initialized
+          firebaseInitializedRef.current = true;
+          
+          console.log('✅ Firebase initialized successfully');
+          console.log(`⏱️ Location update interval: ${sendDurationInSeconds} seconds`);
+          
+          // Update state with the dynamic send duration
+          setState(prev => ({
+            ...prev,
+            sendDurationInSeconds: sendDurationInSeconds || 3
+          }));
+        } catch (error) {
+          console.error('❌ Failed to initialize Firebase for active order:', error);
+          console.error('Error details:', error.message);
+          setState(prev => ({
+            ...prev,
+            locationError: 'Firebase connection failed - location tracking may not work'
+          }));
+          return; // Don't proceed if Firebase init fails
+        }
+      } else if (firebaseInitializedRef.current) {
+        console.log('ℹ️ Firebase already initialized, skipping re-initialization');
+      }
+
       // Handle both array and single object
       const orders = Array.isArray(state.activeOrder) ? state.activeOrder : [state.activeOrder];
-      
+
       // Filter for "Delivering" status orders
       const deliveringOrders = orders.filter(order => {
         const status = order.orderStatus || order.status || '';
         return status.toLowerCase() === 'delivering';
       });
-      
+
       if (deliveringOrders.length > 0) {
         console.log(`🔥 Found ${deliveringOrders.length} order(s) with "Delivering" status, sending to Firebase...`);
-        await sendOrderStatusToFirebase(deliveringOrders);
+        try {
+          await sendOrderStatusToFirebase(deliveringOrders);
+          console.log('✅ Successfully sent orders to Firebase');
+        } catch (error) {
+          console.error('❌ Failed to send orders to Firebase:', error);
+          console.error('Error details:', error.message);
+        }
       }
     };
-    
+
     checkAndSendToFirebase();
-  }, [state.activeOrder, userId, sendOrderStatusToFirebase]);
+  }, [state.activeOrder, userId, sendOrderStatusToFirebase, token]);
 
   // 🔌 Connect to socket server with authentication
   // Socket connects ONLY when user is ONLINE
@@ -794,6 +888,7 @@ export const DeliveryProvider = ({ children }) => {
 // These functions use direct HTTP calls and work whether you're online or offline
 
 // 🔥 Send order status to Firebase immediately - Enhanced for Delivering status
+// Matches backend Firebase structure format
 const sendOrderStatusToFirebase = useCallback(async (orders) => {
   if (!orders || !Array.isArray(orders) || orders.length === 0) {
     console.log('⚠️ No orders to send to Firebase');
@@ -806,7 +901,7 @@ const sendOrderStatusToFirebase = useCallback(async (orders) => {
   for (const order of orders) {
     try {
       const mongoId = order._id || order.id;
-      const orderId = mongoId || order.orderId || order.orderCode;
+      const orderId = mongoId ? mongoId.toString() : (order.orderId || order.orderCode).toString();
       
       if (!orderId) {
         console.warn('⚠️ Order missing ID, skipping Firebase update:', order);
@@ -816,38 +911,67 @@ const sendOrderStatusToFirebase = useCallback(async (orders) => {
       const orderStatus = order.orderStatus || order.status || 'Delivering';
       const orderRef = ref(database, `deliveryOrders/${orderId}`);
       
+      // ✅ Match backend Firebase structure format
       const orderData = {
         orderId: orderId,
-        orderCode: order.orderCode || `ORD-${orderId.slice(-6)}`,
-        status: orderStatus,
+        userId: order.userId?._id?.toString() || order.userId?.toString() || order.customerId?.toString() || 'unknown',
+        deliveryPersonId: userId.toString(),
         orderStatus: orderStatus,
+        orderCode: order.orderCode || `ORD-${orderId.slice(-6)}`,
+        
+        // Restaurant location in GeoJSON format
+        restaurantLocation: order.restaurantLocation ? {
+          type: order.restaurantLocation.type || 'Point',
+          coordinates: order.restaurantLocation.coordinates || [
+            order.restaurantLocation.lng || order.restaurantLocation.longitude || 0,
+            order.restaurantLocation.lat || order.restaurantLocation.latitude || 0
+          ]
+        } : null,
+        
+        // Destination location in GeoJSON format
+        destinationLocation: order.destinationLocation ? {
+          type: order.destinationLocation.type || 'Point',
+          coordinates: order.destinationLocation.coordinates || [
+            order.destinationLocation.lng || order.destinationLocation.longitude || 0,
+            order.destinationLocation.lat || order.destinationLocation.latitude || 0
+          ]
+        } : (order.deliveryLocation ? {
+          type: order.deliveryLocation.type || 'Point',
+          coordinates: order.deliveryLocation.coordinates || [
+            order.deliveryLocation.lng || order.deliveryLocation.longitude || 0,
+            order.deliveryLocation.lat || order.deliveryLocation.latitude || 0
+          ]
+        } : null),
+        
+        deliveryVehicle: order.deliveryVehicle || user?.deliveryMethod || 'Unknown',
+        pickUpVerification: order.pickUpVerificationCode || order.pickUpVerification || null,
+        
+        // Additional tracking info
         deliveryPerson: {
           id: userId,
           name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : 'Unknown User',
           phone: user?.phone || 'N/A',
           deliveryMethod: user?.deliveryMethod || 'N/A'
         },
+        
         trackingEnabled: true,
         deliveryFee: extractNumber(order.deliveryFee),
         tip: extractNumber(order.tip),
+        
+        createdAt: order.createdAt || new Date().toISOString(),
         lastStatusUpdate: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
       // Add optional fields
       if (order.restaurantName) orderData.restaurantName = order.restaurantName;
-      if (order.restaurantLocation) orderData.restaurantLocation = order.restaurantLocation;
-      if (order.destinationLocation) orderData.customerLocation = order.destinationLocation;
-      else if (order.deliveryLocation) orderData.customerLocation = order.deliveryLocation;
-      else if (order.deliverLocation) orderData.customerLocation = order.deliverLocation;
-      if (order.pickUpVerificationCode) orderData.pickUpVerificationCode = order.pickUpVerificationCode;
       if (order.userName) orderData.customerName = order.userName;
       if (order.phone) orderData.customerPhone = order.phone;
       if (order.description) orderData.description = order.description;
 
-      // Add current location if available
+      // Add current delivery person location if available
       if (currentLocation) {
-        orderData.deliveryLocation = {
+        orderData.currentDeliveryLocation = {
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
           accuracy: currentLocation.accuracy,
@@ -859,15 +983,25 @@ const sendOrderStatusToFirebase = useCallback(async (orders) => {
         console.log(`⚠️ No current location available for order ${order.orderCode}`);
       }
 
-      // Clean undefined values before sending to Firebase
+      // Clean undefined and null values before sending to Firebase
       const cleanedOrderData = removeUndefinedFields(orderData);
       
-      await update(orderRef, cleanedOrderData);
+      // Use set() for complete replacement to ensure structure is correct
+      await set(orderRef, cleanedOrderData);
       console.log(`✅ Order ${order.orderCode} (${orderStatus}) sent to Firebase successfully`);
       console.log(`🔥 Firebase path: deliveryOrders/${orderId}`);
+      console.log(`📦 Firebase structure:`, {
+        orderId: cleanedOrderData.orderId,
+        userId: cleanedOrderData.userId,
+        deliveryPersonId: cleanedOrderData.deliveryPersonId,
+        orderStatus: cleanedOrderData.orderStatus,
+        hasRestaurantLocation: !!cleanedOrderData.restaurantLocation,
+        hasDestinationLocation: !!cleanedOrderData.destinationLocation
+      });
       
     } catch (error) {
       console.error(`❌ Error sending order ${order.orderCode || 'unknown'} to Firebase:`, error.message);
+      console.error('❌ Full error:', error);
     }
   }
 }, [userId, user]);

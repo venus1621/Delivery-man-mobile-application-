@@ -6,8 +6,10 @@
  */
 
 import { logger } from './utils/logger';
-
+import axios from "axios"
 // ==================== FIREBASE CONFIGURATION ====================
+
+
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBOR6P6mCqgH5nleU09l9iQEk2K9Nq9OeA',
   authDomain: 'gebeta-9595d.firebaseapp.com',

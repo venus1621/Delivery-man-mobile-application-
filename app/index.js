@@ -6,22 +6,25 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Truck } from 'lucide-react-native';
 import LoginScreen from './login';
 
+// ✅ IMPORT KEEP AWAKE HERE
+import { useKeepAwake } from 'expo-keep-awake';
+
 export default function IndexScreen() {
+  // ✅ CALL KEEP AWAKE HERE
+  useKeepAwake();
+
   const { isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
     if (!isLoading) {
       if (isAuthenticated) {
-        // If authenticated, go to dashboard
         router.replace('/tabs/dashboard');
       } else {
-        // Always start with login page when not authenticated
         router.replace('/login');
       }
     }
   }, [isAuthenticated, isLoading]);
 
-  // Show loading screen while checking authentication
   if (isLoading) {
     return (
       <View style={styles.container}>
@@ -32,17 +35,12 @@ export default function IndexScreen() {
           <View style={styles.logoContainer}>
             <Truck color="#FFFFFF" size={48} />
           </View>
-          <ActivityIndicator 
-            size="large" 
-            color="#FFFFFF" 
-            style={styles.loader}
-          />
+          <ActivityIndicator size="large" color="#FFFFFF" style={styles.loader} />
         </LinearGradient>
       </View>
     );
   }
 
-  // This should not be reached due to the useEffect above, but just in case
   return (
     <View style={styles.container}>
       <LoginScreen />

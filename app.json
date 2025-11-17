@@ -8,13 +8,11 @@
     "scheme": "gebetadelivery",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.venus1621.deliveryapp",
@@ -24,7 +22,6 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-
     "android": {
       "package": "com.delivery.gebeta",
       "versionCode": 1,
@@ -49,15 +46,16 @@
               "pathPrefix": "/"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
-
     "web": {
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       [
         "expo-router",
@@ -85,18 +83,20 @@
             "compileSdkVersion": 36,
             "targetSdkVersion": 36,
             "minSdkVersion": 24,
-            "extraMavenRepos": ["https://maven.google.com"]
+            "extraMavenRepos": [
+              "https://maven.google.com"
+            ]
           }
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-audio",
+      "expo-video"
     ],
-
     "assetBundlePatterns": [
       "assets/images/**/*",
       "assets/fonts/**/*"
     ],
-
     "extra": {
       "router": {
         "origin": "https://delivery.gebeta.com/"
