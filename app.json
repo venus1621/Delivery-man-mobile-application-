@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Delivery Application for Gebeta Delivery Service",
+    "name": "Gebeta Delivery",
     "slug": "delivery-application-gebeta",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,6 +8,8 @@
     "scheme": "gebetadelivery",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "description": "Professional delivery driver application for Gebeta Delivery Service. Track orders, navigate to destinations, and manage deliveries efficiently.",
+    "privacy": "public",
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -20,6 +22,9 @@
         "NSCameraUsageDescription": "This app requires camera access to scan QR codes for order verification.",
         "NSLocationWhenInUseUsageDescription": "We use your location to deliver orders to your exact destination.",
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "runtimeVersion": {
+        "policy": "appVersion"
       }
     },
     "android": {
@@ -29,7 +34,35 @@
         "VIBRATE",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "CAMERA"
+        "ACCESS_BACKGROUND_LOCATION",
+        "CAMERA",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "WAKE_LOCK",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "VIBRATE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "CAMERA",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "WAKE_LOCK",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -50,8 +83,28 @@
             "BROWSABLE",
             "DEFAULT"
           ]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "https",
+              "host": "delivery.gebeta.com",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
-      ]
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
+        }
+      },
+      "runtimeVersion": "1.0.0"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -66,13 +119,17 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to provide delivery services and navigation."
+          "locationAlwaysAndWhenInUsePermission": "Allow Gebeta Delivery to use your location to provide delivery services and navigation.",
+          "locationWhenInUsePermission": "Allow Gebeta Delivery to access your location while delivering orders.",
+          "locationAlwaysPermission": "Allow Gebeta Delivery to track your location in the background for real-time delivery updates and customer tracking.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan QR codes for order verification."
+          "cameraPermission": "Allow Gebeta Delivery to access your camera to scan QR codes for order verification and proof of delivery."
         }
       ],
       [
@@ -83,9 +140,15 @@
             "compileSdkVersion": 36,
             "targetSdkVersion": 36,
             "minSdkVersion": 24,
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
             "extraMavenRepos": [
               "https://maven.google.com"
-            ]
+            ],
+            "enableMinifyInReleaseBuilds": true
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
           }
         }
       ],
@@ -104,6 +167,9 @@
       "eas": {
         "projectId": "a1342bd9-7823-4284-9bc1-a70e0ce44fd9"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/a1342bd9-7823-4284-9bc1-a70e0ce44fd9"
     }
   }
 }
