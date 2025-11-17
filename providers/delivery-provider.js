@@ -1593,7 +1593,7 @@ const fetchDeliveryHistory = useCallback(async () => {
     console.log(`✅ Loaded ${normalizedHistory.length} fresh completed deliveries`);
 
   } catch (error) {
-    console.error("❌ Error fetching delivery history:", error);
+   
     setState((prev) => ({
       ...prev,
       isLoadingHistory: false,
