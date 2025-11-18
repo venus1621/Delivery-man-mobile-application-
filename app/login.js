@@ -11,10 +11,11 @@ import {
   Keyboard,
   Modal,
   ScrollView,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Phone, X, Key } from 'lucide-react-native';
+import { Truck, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Phone, X, Key, FileText, CheckSquare, Square } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../providers/auth-provider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -41,6 +42,10 @@ export default function LoginScreen() {
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
+
+  // Terms and Conditions States
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   // Validation logic
   const validation = useMemo(() => {
@@ -73,6 +78,11 @@ export default function LoginScreen() {
       return;
     }
 
+    if (!acceptedTerms) {
+      setErrorMessage('Please accept the Terms and Conditions to continue');
+      return;
+    }
+
     // Clear error and close keyboard
     setErrorMessage('');
     Keyboard.dismiss();
@@ -93,7 +103,7 @@ export default function LoginScreen() {
     } else {
       setErrorMessage(result.message || 'Invalid credentials. Please try again.');
     }
-  }, [phone, password, login]);
+  }, [phone, password, login, acceptedTerms]);
 
   useEffect(() => {
     if (errorMessage || successMessage) {
@@ -388,11 +398,61 @@ export default function LoginScreen() {
                     <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                   </TouchableOpacity>
 
+                  {/* Terms and Conditions Checkbox */}
+                  <View style={styles.termsContainer}>
+                    <TouchableOpacity
+                      onPress={() => setAcceptedTerms(!acceptedTerms)}
+                      style={styles.checkboxContainer}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.checkbox, acceptedTerms && styles.checkboxChecked]}>
+                        {acceptedTerms && (
+                          <CheckCircle color="#FFFFFF" size={16} strokeWidth={3} />
+                        )}
+                      </View>
+                      <View style={styles.termsTextContainer}>
+                        <Text style={styles.termsText}>
+                          I accept the{' '}
+                          <Text
+                            style={styles.termsLink}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              setShowTermsModal(true);
+                            }}
+                          >
+                            Terms and Conditions
+                          </Text>
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Terms and Conditions Checkbox */}
+                  <View style={styles.termsContainer}>
+                    <TouchableOpacity
+                      onPress={() => setAcceptedTerms(!acceptedTerms)}
+                      style={styles.checkboxContainer}
+                      activeOpacity={0.7}
+                    >
+                      {acceptedTerms ? (
+                        <CheckSquare color="#667eea" size={22} />
+                      ) : (
+                        <Square color="#6b7280" size={22} />
+                      )}
+                    </TouchableOpacity>
+                    <View style={styles.termsTextContainer}>
+                      <Text style={styles.termsText}>I agree to the </Text>
+                      <TouchableOpacity onPress={() => setShowTermsModal(true)}>
+                        <Text style={styles.termsLink}>Terms and Conditions</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
                   {/* Login Button */}
                   <TouchableOpacity
-                    style={styles.loginButton}
+                    style={[styles.loginButton, !acceptedTerms && styles.loginButtonDisabled]}
                     onPress={handleLogin}
-                    disabled={isLoading}
+                    disabled={isLoading || !acceptedTerms}
                     testID="login-button"
                     activeOpacity={0.7}
                   >
@@ -415,6 +475,18 @@ export default function LoginScreen() {
                 <Text style={styles.footerText}>
                   Don&apos;t have an account? Contact your administrator
                 </Text>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL('mailto:deliverygebeta@gmail.com')}
+                  style={styles.contactLink}
+                >
+                  <Text style={styles.contactText}>deliverygebeta@gmail.com</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL('tel:+251919444499')}
+                  style={styles.contactLink}
+                >
+                  <Text style={styles.contactText}>+251 919 444 499</Text>
+                </TouchableOpacity>
               </View>
 
               {/* Message Banner */}
@@ -670,6 +742,132 @@ export default function LoginScreen() {
             </View>
           </KeyboardAvoidingView>
         </View>
+      </Modal>
+
+      {/* Terms and Conditions Modal */}
+      <Modal
+        visible={showTermsModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowTermsModal(false)}
+        statusBarTranslucent
+      >
+        <SafeAreaView style={styles.termsModalContainer}>
+          <View style={styles.termsModalHeader}>
+            <View style={styles.termsModalTitleContainer}>
+              <FileText color="#667eea" size={28} />
+              <Text style={styles.termsModalTitle}>Terms and Conditions</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowTermsModal(false)}
+              style={styles.termsCloseButton}
+              activeOpacity={0.7}
+            >
+              <X color="#6b7280" size={24} />
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView style={styles.termsModalContent} showsVerticalScrollIndicator={true}>
+            <Text style={styles.termsEffectiveDate}>Effective Date: November 18, 2024</Text>
+            
+            <Text style={styles.termsWelcome}>Welcome to Gebeta Delivery</Text>
+            <Text style={styles.termsBodyText}>
+              These Terms and Conditions ("Terms", "Agreement") govern your use of the Gebeta Delivery Driver mobile application operated by Gebeta Delivery. By accessing or using our App, you agree to be bound by these Terms.
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>1. ACCEPTANCE OF TERMS</Text>
+            <Text style={styles.termsBodyText}>
+              By registering as a delivery driver with Gebeta Delivery, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions. This Agreement is governed by the laws of the Federal Democratic Republic of Ethiopia.
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>2. ELIGIBILITY</Text>
+            <Text style={styles.termsBodyText}>
+              • You must be at least 18 years old{'\n'}
+              • You must be legally permitted to work in Ethiopia{'\n'}
+              • You must provide valid Ethiopian National ID{'\n'}
+              • You must have a valid driver's license (if using motorized vehicle){'\n'}
+              • You must pass background verification
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>3. DRIVER RESPONSIBILITIES</Text>
+            <Text style={styles.termsBodyText}>
+              • Maintain valid licenses and permits{'\n'}
+              • Provide safe and professional service{'\n'}
+              • Follow traffic laws and regulations{'\n'}
+              • Protect customer privacy and order confidentiality{'\n'}
+              • Use the app honestly and accurately{'\n'}
+              • Maintain vehicle in good condition
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>4. PAYMENT TERMS</Text>
+            <Text style={styles.termsBodyText}>
+              • Payments processed weekly to your registered bank account{'\n'}
+              • Earnings based on deliveries completed{'\n'}
+              • Company retains right to deduct fees and penalties{'\n'}
+              • All payments subject to Ethiopian tax laws
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>5. PROHIBITED CONDUCT</Text>
+            <Text style={styles.termsBodyText}>
+              • Fraudulent activity or misrepresentation{'\n'}
+              • Harassment of customers or merchants{'\n'}
+              • Discrimination of any kind{'\n'}
+              • Unauthorized use of customer information{'\n'}
+              • Operating under the influence of alcohol or drugs{'\n'}
+              • Accepting cash payments directly from customers
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>6. TERMINATION</Text>
+            <Text style={styles.termsBodyText}>
+              We reserve the right to suspend or terminate your account for violation of these terms, fraudulent activity, poor performance, or at our discretion. You may terminate your account by contacting us.
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>7. LIABILITY</Text>
+            <Text style={styles.termsBodyText}>
+              You are an independent contractor. Gebeta Delivery is not liable for injuries, damages, or losses incurred during deliveries. You must maintain appropriate insurance coverage.
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>8. PRIVACY</Text>
+            <Text style={styles.termsBodyText}>
+              Your use of the App is subject to our Privacy Policy. We collect and use location data, personal information, and delivery data as described in our Privacy Policy.
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>9. GOVERNING LAW</Text>
+            <Text style={styles.termsBodyText}>
+              These Terms are governed by the laws of the Federal Democratic Republic of Ethiopia. Any disputes shall be resolved in Ethiopian courts.
+            </Text>
+
+            <Text style={styles.termsSectionTitle}>10. CONTACT</Text>
+            <Text style={styles.termsBodyText}>
+              For questions about these Terms:{'\n\n'}
+              Email: deliverygebeta@gmail.com{'\n'}
+              Phone: +251 919 444 499
+            </Text>
+
+            <Text style={styles.termsLastUpdated}>Last Updated: November 18, 2024</Text>
+            
+            <View style={styles.termsBottomPadding} />
+          </ScrollView>
+
+          <View style={styles.termsModalFooter}>
+            <TouchableOpacity
+              style={styles.termsAcceptButton}
+              onPress={() => {
+                setAcceptedTerms(true);
+                setShowTermsModal(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <LinearGradient
+                colors={['#667eea', '#764ba2']}
+                style={styles.termsAcceptGradient}
+              >
+                <CheckCircle color="#FFFFFF" size={20} />
+                <Text style={styles.termsAcceptButtonText}>Accept & Continue</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
       </Modal>
     </View>
   );
@@ -1079,5 +1277,132 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9fafb',
     borderWidth: 2,
     borderColor: '#e5e7eb',
+  },
+  // Terms and Conditions Styles
+  termsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  checkboxContainer: {
+    marginRight: 12,
+  },
+  termsTextContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    flex: 1,
+  },
+  termsText: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+  termsLink: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+    lineHeight: 20,
+  },
+  loginButtonDisabled: {
+    opacity: 0.5,
+  },
+  // Terms Modal Styles
+  termsModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  termsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  termsModalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  termsModalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  termsCloseButton: {
+    padding: 8,
+  },
+  termsModalContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  termsEffectiveDate: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontStyle: 'italic',
+    marginBottom: 16,
+  },
+  termsWelcome: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: 12,
+  },
+  termsSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  termsBodyText: {
+    fontSize: 14,
+    color: '#4b5563',
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  termsLastUpdated: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontStyle: 'italic',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  termsBottomPadding: {
+    height: 40,
+  },
+  termsModalFooter: {
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  termsAcceptButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  termsAcceptGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 10,
+  },
+  termsAcceptButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

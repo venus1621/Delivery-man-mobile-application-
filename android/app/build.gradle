@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.deliveryapplicationforgebetadeliveryservice"
+    namespace "com.gebetadelivery"
     defaultConfig {
-        applicationId "com.deliveryapplicationforgebetadeliveryservice"
+        applicationId "com.gebetadelivery"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

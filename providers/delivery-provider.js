@@ -391,8 +391,8 @@ export const DeliveryProvider = ({ children }) => {
   // 📍 Send location updates every 3 seconds - WORKS INDEPENDENTLY OF SOCKET STATUS
   // Firebase location tracking works when there's an active order being delivered
   useEffect(() => {
-    if (!userId || !state.isLocationTracking) {
-      // Clear interval if not tracking
+    if (!userId || !state.isLocationTracking || !state.activeOrder) {
+      // Clear interval if not tracking or no active order
       if (locationIntervalRef.current) {
         clearInterval(locationIntervalRef.current);
         locationIntervalRef.current = null;
@@ -403,22 +403,28 @@ export const DeliveryProvider = ({ children }) => {
     // Get the dynamic interval from state (in seconds) and convert to milliseconds
     const intervalInMs = (state.sendDurationInSeconds || 3) * 1000;
     console.log(`⏱️ Starting location tracking with interval: ${state.sendDurationInSeconds} seconds (${intervalInMs}ms)`);
-    
+
     // Start interval to send location based on dynamic duration from backend
     locationIntervalRef.current = setInterval(async () => {
       const currentLocation = locationService.getCurrentLocation();
       if (currentLocation) {
         
+        // Check if activeOrder is an array (from dashboard) or single object (from state)
+        // Define this early so we can use it in multiple places
+        const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : 
+                             (state.activeOrder ? [state.activeOrder] : []);
+
+        // ✅ Check if there's an active order before attempting Firebase update
+        if (activeOrders.length === 0 || !state.activeOrder) {
+          // Silently skip - no need to log or warn when there's no active order
+          return;
+        }
+
         // ✅ Check if Firebase database is initialized
         if (!database) {
           console.warn('⚠️ Firebase database not initialized, skipping location update');
           return;
         }
-        
-        // Check if activeOrder is an array (from dashboard) or single object (from state)
-        // Define this early so we can use it in multiple places
-        const activeOrders = Array.isArray(state.activeOrder) ? state.activeOrder : 
-                             (state.activeOrder ? [state.activeOrder] : []);
 
         // ALWAYS send to Firebase - direct delivery guy location tracking
         try {
