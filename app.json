@@ -53,7 +53,6 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "googleServicesFile": "./android/app/google-services.json",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -122,9 +121,9 @@
         {
           "android": {
             "usesCleartextTraffic": false,
-            "compileSdkVersion": 36,
-            "targetSdkVersion": 36,
-            "minSdkVersion": 24,
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 23,
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "extraMavenRepos": [
@@ -142,7 +141,9 @@
       "expo-video"
     ],
     "assetBundlePatterns": [
-      "assets/images/**/*",
+      "assets/images/**/*.png",
+      "assets/images/**/*.jpg",
+      "assets/images/**/*.jpeg",
       "assets/fonts/**/*"
     ],
     "extra": {
