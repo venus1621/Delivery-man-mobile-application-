@@ -75,19 +75,15 @@ export default function DashboardScreen() {
       ToastAndroid.show(message, ToastAndroid.SHORT);
     } else {
       // For iOS, you can use Alert or a custom toast component
-      console.log(message);
     }
   };
 
   // 🔄 Enhanced Refresh Function - Clears old data and fetches fresh data
   const onRefresh = async () => {
-    console.log('🔄 Starting complete data refresh...');
-    console.log('🧹 Clearing old data before fetching new data...');
     setRefreshing(true);
     
     try {
       // Step 1: Clear all cached/stored data first
-      console.log('🗑️ Clearing stored active orders, available orders, and history...');
       
       // Clear data by resetting the state (this will be handled by the provider)
       // The fetch functions will populate with fresh data
@@ -118,7 +114,6 @@ export default function DashboardScreen() {
         second: '2-digit'
       }));
 
-      console.log('✅ Complete data refresh successful - old data cleared, new data loaded');
       showRefreshMessage('✅ Data refreshed successfully!', true);
       
     } catch (error) {
@@ -581,7 +576,6 @@ export default function DashboardScreen() {
           order={pendingOrderPopup}
           onAccept={(order) => acceptOrderFromModal(order, () => {
             // Already on dashboard, just refresh the data
-            console.log('✅ Order accepted, refreshing dashboard data...');
             onRefresh();
           })}
           onDecline={declineOrder}

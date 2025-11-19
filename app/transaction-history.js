@@ -62,7 +62,6 @@ export default function TransactionHistoryScreen() {
         setFilteredTransactions(sortedTransactions);
         setTotalBalance(result.data.totalBalance);
         setRequesterType(result.data.requesterType);
-        console.log('✅ Transactions sorted in descending order (newest first)');
       } else {
         setError(result.message);
       }

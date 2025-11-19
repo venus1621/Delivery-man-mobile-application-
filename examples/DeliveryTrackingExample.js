@@ -23,7 +23,6 @@ const DeliveryTrackingExample = () => {
       });
       
       if (success) {
-        console.log('✅ Order marked as picked up');
         // Location tracking will automatically adjust to 5-second intervals
       }
     }
@@ -37,7 +36,6 @@ const DeliveryTrackingExample = () => {
       });
       
       if (success) {
-        console.log('✅ Order marked as in transit');
         // Location tracking will automatically adjust to 3-second intervals
       }
     }
@@ -48,7 +46,6 @@ const DeliveryTrackingExample = () => {
     if (activeOrder) {
       const success = await sendLocationUpdate(activeOrder.orderId);
       if (success) {
-        console.log('📍 Manual location update sent');
       }
     }
   };
@@ -57,7 +54,6 @@ const DeliveryTrackingExample = () => {
   const getCurrentInterval = () => {
     if (activeOrder) {
       const interval = getLocationUpdateInterval(activeOrder.status);
-      console.log(`Current update interval: ${interval}ms`);
       return interval;
     }
     return null;
@@ -85,7 +81,6 @@ const DeliveryTrackingExample = () => {
         orderId={activeOrder.orderId}
         currentStatus={activeOrder.status}
         onStatusUpdate={(newStatus) => {
-          console.log(`Status updated to: ${newStatus}`);
         }}
       />
 

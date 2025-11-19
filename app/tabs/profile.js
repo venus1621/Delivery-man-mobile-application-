@@ -95,7 +95,6 @@ export default function ProfileScreen() {
   // Fetch balance and recent transactions
   const fetchBalanceData = useCallback(async () => {
     if (!token) {
-      console.log('⚠️ No token available for balance fetch');
       setIsLoadingBalance(false);
       return;
     }
@@ -109,7 +108,6 @@ export default function ProfileScreen() {
       
       // Check if authentication is required
       if (balanceResult.requiresAuth) {
-        console.log('🔒 Token expired or invalid, redirecting to login...');
         Alert.alert(
           'Session Expired',
           'Your session has expired. Please log in again.',
@@ -137,7 +135,6 @@ export default function ProfileScreen() {
       
       // Check if authentication is required
       if (historyResult.requiresAuth) {
-        console.log('🔒 Token expired or invalid, redirecting to login...');
         Alert.alert(
           'Session Expired',
           'Your session has expired. Please log in again.',
@@ -248,7 +245,6 @@ export default function ProfileScreen() {
 
       // Check if authentication is required
       if (result.requiresAuth) {
-        console.log('🔒 Token expired or invalid, redirecting to login...');
         setShowWithdrawModal(false);
         Alert.alert(
           'Session Expired',
@@ -446,15 +442,12 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              console.log('🚪 Starting logout process...');
               
               // Clear delivery data first
               await clearDeliveryData();
-              console.log('✅ Delivery data cleared');
               
               // Then logout
               await logout();
-              console.log('✅ Logout completed');
               
             } catch (error) {
               console.error('❌ Error during logout:', error);

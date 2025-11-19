@@ -247,7 +247,6 @@ export default function MapScreen() {
       const supported = await Linking.canOpenURL(url);
       if (supported) {
         await Linking.openURL(url);
-        console.log(`🗺️ Opening directions from ${currentLatLng} to ${latLng}`);
       }
     } catch (error) {
       console.error('Error opening maps:', error);

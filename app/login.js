@@ -235,7 +235,6 @@ export default function LoginScreen() {
             AsyncStorage.setItem('userProfile', JSON.stringify(user)),
           ]);
 
-          console.log('✅ Password reset successful, user authenticated:', user._id);
           
           setTimeout(() => {
             // Close modal and navigate

@@ -15,27 +15,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const checkAuthStatus = useCallback(async () => {
     try {
-      console.log('🔍 Checking authentication status...');
-      
       const [token, userId, userRole, userProfile] = await Promise.all([
         AsyncStorage.getItem('authToken'),
         AsyncStorage.getItem('userId'),
         AsyncStorage.getItem('userRole'),
         AsyncStorage.getItem('userProfile'),
       ]);
-console.log(token);
-      console.log('📱 Stored data found:');
-      console.log('- Token:', token ? 'Present' : 'Missing');
-      console.log('- User ID:', userId || 'Missing');
-      console.log('- User Role:', userRole || 'Missing');
-      console.log('- User Profile:', userProfile ? 'Present' : 'Missing');
-
+ 
       if (token && userId) {
         let user = null;
         if (userProfile) {
           try {
             user = JSON.parse(userProfile);
-            console.log('👤 User profile loaded:', user);
           } catch (e) {
             console.error('Error parsing user profile:', e);
           }
@@ -43,7 +34,6 @@ console.log(token);
 
         // Check if user is a Delivery Person
         if (user && user.role !== 'Delivery_Person') {
-          console.log('❌ User is not a Delivery Person - logging out');
           // Clear all stored data
           await Promise.all([
             AsyncStorage.removeItem('authToken'),
@@ -72,7 +62,6 @@ console.log(token);
           user,
         });
         
-        console.log('✅ User authenticated, delivery person ID:', userId);
       } else {
         setState({
           isAuthenticated: false,
@@ -83,7 +72,6 @@ console.log(token);
           user: null,
         });
         
-        console.log('❌ User not authenticated - redirecting to login');
       }
     } catch (error) {
       console.error('Error checking auth status:', error);
@@ -102,7 +90,6 @@ console.log(token);
     try {
       setState(prev => ({ ...prev, isLoading: true }));
       
-      console.log('🔐 Attempting login for phone:', phone);
       
       const response = await fetch('https://gebeta-delivery1.onrender.com/api/v1/users/login', {
         method: 'POST',
@@ -117,8 +104,6 @@ console.log(token);
       if (response.ok && data.status === 'success') {
         const { token, data: { user } } = data;
         
-        console.log('👤 User data received:', user);
-        console.log('🆔 Delivery Person ID:', user._id);
         
         // Store all user data in AsyncStorage
         await Promise.all([
@@ -137,11 +122,9 @@ console.log(token);
           user,
         });
 
-        console.log('✅ Login successful, delivery person ID stored:', user._id);
         return { success: true, userId: user._id, user };
       } else {
         setState(prev => ({ ...prev, isLoading: false }));
-        console.log('❌ Login failed:', data.message);
         
         // Display server error message
         const serverMessage = data.message || data.error || 
@@ -164,7 +147,6 @@ console.log(token);
 
   const logout = useCallback(async () => {
     try {
-      console.log('🚪 Logging out user...');
       
       // Clear all stored data
       await Promise.all([
@@ -177,7 +159,6 @@ console.log(token);
   // delivery-related persistent storage removed from app
       ]);
 
-      console.log('🧹 All stored data cleared');
 
       // Update auth state
       setState({
@@ -192,7 +173,6 @@ console.log(token);
       // Navigate to login screen
       router.replace('/login');
       
-      console.log('✅ Logout completed successfully');
     } catch (error) {
       console.error('❌ Error during logout:', error);
       // Even if there's an error, try to navigate to login
@@ -202,7 +182,6 @@ console.log(token);
 
   const clearAllData = useCallback(async () => {
     try {
-      console.log('🧹 Clearing all stored data...');
       
       await Promise.all([
         AsyncStorage.removeItem('authToken'),
@@ -212,7 +191,6 @@ console.log(token);
         AsyncStorage.removeItem('isOnline'),
       ]);
 
-      console.log('✅ All data cleared successfully');
       
       setState({
         isAuthenticated: false,

@@ -64,8 +64,6 @@ export default function VerificationModal({
   };
 
   const handleQRScanSuccess = (scannedCode, fullData) => {
-    console.log('✅ QR Code scanned successfully:', scannedCode);
-    console.log('📦 Full QR data:', fullData);
     
     setVerificationCode(scannedCode);
     setShowQRScanner(false);

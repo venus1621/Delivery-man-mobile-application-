@@ -128,7 +128,6 @@ export default function OrdersScreen() {
                 ]);
                 
                 // Automatically redirect to dashboard without prompt
-                console.log('✅ Order accepted successfully, redirecting to dashboard...');
                 router.push('/tabs/dashboard');
               }
             } catch (error) {
@@ -144,7 +143,6 @@ export default function OrdersScreen() {
 const getTimeAgo = (dateString) => {
   try {
     if (!dateString) return 'Recently';
-    console.log("🕒 Raw Date String:", dateString);
 
     // Attempt native parsing first
     let date = new Date(dateString);

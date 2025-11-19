@@ -112,16 +112,6 @@ export default function HistoryScreen() {
     const highestEarning = Math.max(...earningsArray, 0);
     const lowestEarning = Math.min(...earningsArray, 0);
 
-    console.log('📊 Calculated Analytics:', {
-      totalEarnings,
-      deliveryFeeEarnings,
-      tipEarnings,
-      totalDeliveries,
-      averageEarning,
-      highestEarning,
-      lowestEarning,
-    });
-
     setAnalytics({
       totalEarnings,
       deliveryFeeEarnings,
