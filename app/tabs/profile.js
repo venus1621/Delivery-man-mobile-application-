@@ -97,30 +97,65 @@ export default function ProfileScreen() {
     if (!token) {
       console.log('⚠️ No token available for balance fetch');
       setIsLoadingBalance(false);
-      setBalanceError('Authentication required');
       return;
     }
 
     try {
       setIsLoadingBalance(true);
       setBalanceError(null);
-      console.log('💰 Fetching balance data...');
-      console.log('Token:', token ? 'Present' : 'Missing');
       
       // Fetch balance
       const balanceResult = await getBalance(token);
-      console.log('Balance result:', balanceResult);
+      
+      // Check if authentication is required
+      if (balanceResult.requiresAuth) {
+        console.log('🔒 Token expired or invalid, redirecting to login...');
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please log in again.',
+          [
+            {
+              text: 'OK',
+              onPress: async () => {
+                await clearDeliveryData();
+                await logout();
+                router.replace('/login');
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+        return;
+      }
+      
       if (balanceResult.success) {
         setBalance(balanceResult.data);
-        console.log('✅ Balance loaded:', balanceResult.data);
-      } else {
-        console.log('❌ Failed to fetch balance:', balanceResult.message);
-        setBalanceError(balanceResult.message || 'Failed to load balance');
       }
       
       // Fetch recent transactions (last 5 in descending order - newest first)
       const historyResult = await getTransactionHistory(token);
-      console.log('Transaction history result:', historyResult);
+      
+      // Check if authentication is required
+      if (historyResult.requiresAuth) {
+        console.log('🔒 Token expired or invalid, redirecting to login...');
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please log in again.',
+          [
+            {
+              text: 'OK',
+              onPress: async () => {
+                await clearDeliveryData();
+                await logout();
+                router.replace('/login');
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+        return;
+      }
+      
       if (historyResult.success) {
         // Sort in descending order (newest first) and take first 5
         const sortedTransactions = [...historyResult.data.transactions].sort((a, b) => {
@@ -128,17 +163,13 @@ export default function ProfileScreen() {
         });
         const recent = sortedTransactions.slice(0, 5);
         setRecentTransactions(recent);
-        console.log('✅ Recent transactions loaded (newest first):', recent.length);
-      } else {
-        console.log('❌ Failed to fetch transactions:', historyResult.message);
       }
     } catch (error) {
       console.error('❌ Error fetching balance data:', error);
-      setBalanceError('Unable to load balance');
     } finally {
       setIsLoadingBalance(false);
     }
-  }, [token]);
+  }, [token, logout, clearDeliveryData]);
 
   // Fetch delivery history on mount
   useEffect(() => {
@@ -214,6 +245,28 @@ export default function ProfileScreen() {
 
     try {
       const result = await requestWithdrawal(token, amount);
+
+      // Check if authentication is required
+      if (result.requiresAuth) {
+        console.log('🔒 Token expired or invalid, redirecting to login...');
+        setShowWithdrawModal(false);
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please log in again.',
+          [
+            {
+              text: 'OK',
+              onPress: async () => {
+                await clearDeliveryData();
+                await logout();
+                router.replace('/login');
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+        return;
+      }
 
       if (result.success) {
         setWithdrawSuccess(result.message || 'Withdrawal request submitted successfully!');
@@ -452,6 +505,7 @@ export default function ProfileScreen() {
           trackColor={{ false: '#D1D5DB', true: '#86EFAC' }}
           thumbColor={notificationSoundEnabled ? '#10B981' : '#9CA3AF'}
           ios_backgroundColor="#D1D5DB"
+          disabled={false}
         />
       ),
     },
@@ -531,13 +585,6 @@ export default function ProfileScreen() {
                       <ActivityIndicator size="small" color="#3B82F6" />
                       <Text style={styles.balanceLoadingText}>Loading...</Text>
                     </View>
-                  ) : balanceError ? (
-                    <View style={styles.balanceErrorContainer}>
-                      <Text style={styles.balanceErrorText}>{balanceError}</Text>
-                      <TouchableOpacity onPress={fetchBalanceData} style={styles.retrySmallButton}>
-                        <Text style={styles.retrySmallButtonText}>Retry</Text>
-                      </TouchableOpacity>
-                    </View>
                   ) : (
                     <Text style={styles.balanceAmount}>
                       {balance ? formatCurrency(balance.amount) : formatCurrency(0)}
@@ -549,10 +596,10 @@ export default function ProfileScreen() {
                 style={styles.withdrawButton}
                 onPress={() => setShowWithdrawModal(true)}
                 activeOpacity={0.7}
-                disabled={isLoadingBalance || balanceError || !balance || balance.amount <= 0}
+                disabled={isLoadingBalance || !balance || balance.amount <= 0}
               >
                 <LinearGradient
-                  colors={isLoadingBalance || balanceError || !balance || balance.amount <= 0 ? ['#9CA3AF', '#6B7280'] : ['#10B981', '#059669']}
+                  colors={isLoadingBalance || !balance || balance.amount <= 0 ? ['#9CA3AF', '#6B7280'] : ['#10B981', '#059669']}
                   style={styles.withdrawButtonGradient}
                 >
                   <DollarSign color="#FFFFFF" size={16} />

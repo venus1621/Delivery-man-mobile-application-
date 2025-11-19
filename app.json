@@ -7,6 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "gebetadelivery",
     "userInterfaceStyle": "automatic",
+    "owner": "geneta1621",
     "newArchEnabled": true,
     "description": "Professional delivery driver application for Gebeta Delivery Service. Track orders, navigate to destinations, and manage deliveries efficiently.",
     "privacy": "public",
@@ -17,7 +18,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.venus1621.deliveryapp",
+      "bundleIdentifier": "com.geneta1621.deliveryapp",
       "infoPlist": {
         "NSCameraUsageDescription": "This app requires camera access to scan QR codes for order verification.",
         "NSLocationWhenInUseUsageDescription": "We use your location to deliver orders to your exact destination.",

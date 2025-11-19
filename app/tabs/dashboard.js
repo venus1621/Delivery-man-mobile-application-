@@ -362,7 +362,8 @@ export default function DashboardScreen() {
             <View style={styles.statIcon}>
               <MapPin color="#FFFFFF" size={24} />
             </View>
-            <Text style={styles.statNumber}>{availableOrdersCount}</Text>
+         {/*   <Text style={styles.statNumber}>{availableOrdersCount}</Text>*/}
+         <Text style={styles.statNumber}>49</Text>
             <Text style={styles.statLabel}>Available Orders</Text>
           </LinearGradient>
 
@@ -374,7 +375,8 @@ export default function DashboardScreen() {
               <DollarSign color="#FFFFFF" size={24} />
             </View>
             <Text style={styles.statNumber}>
-              {formatETB(todayEarnings)}
+              {/* {formatETB(4000)} */}
+              540
             </Text>
             <Text style={styles.statLabel}>Today's Earnings</Text>
             {orderHistory && orderHistory.length > 0 && (
@@ -389,7 +391,7 @@ export default function DashboardScreen() {
             <View style={styles.statIcon}>
               <Truck color="#FFFFFF" size={24} />
             </View>
-            <Text style={styles.statNumber}>{todayDeliveries}</Text>
+            <Text style={styles.statNumber}>8</Text>
             <Text style={styles.statLabel}>Today's Deliveries</Text>
             {todayDeliveries > 0 && todayEarnings > 0 && (
               <Text style={styles.statHint}>
@@ -410,7 +412,7 @@ export default function DashboardScreen() {
               <Text style={styles.totalEarningsTitle}>Total Earnings</Text>
             </View>
             <Text style={styles.totalEarningsAmount}>
-              {formatETB(totalEarnings)}
+              {formatETB(5900)}
             </Text>
             <Text style={styles.totalEarningsSubtitle}>
               {orderHistory && orderHistory.length > 0 

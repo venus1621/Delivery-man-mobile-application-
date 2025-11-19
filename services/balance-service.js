@@ -29,6 +29,7 @@ export const getBalance = async (token) => {
       return {
         success: false,
         message: data.message || 'Failed to fetch balance',
+        requiresAuth: response.status === 401 || data.message?.toLowerCase().includes('log in again') || data.message?.toLowerCase().includes('password changed'),
       };
     }
   } catch (error) {
@@ -71,6 +72,7 @@ export const requestWithdrawal = async (token, amount) => {
       return {
         success: false,
         message: data.message || 'Failed to request withdrawal',
+        requiresAuth: response.status === 401 || data.message?.toLowerCase().includes('log in again'),
       };
     }
   } catch (error) {
@@ -114,6 +116,7 @@ export const getTransactionHistory = async (token) => {
       return {
         success: false,
         message: data.message || 'Failed to fetch transaction history',
+        requiresAuth: response.status === 401 || data.message?.toLowerCase().includes('log in again') || data.message?.toLowerCase().includes('password changed'),
       };
     }
   } catch (error) {
