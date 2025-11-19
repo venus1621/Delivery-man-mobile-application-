@@ -136,9 +136,7 @@
           }
         }
       ],
-      "expo-web-browser",
-      "expo-audio",
-      "expo-video"
+      "expo-web-browser"
     ],
     "assetBundlePatterns": [
       "assets/images/**/*.png",
