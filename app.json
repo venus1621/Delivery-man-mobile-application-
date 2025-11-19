@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Gebeta Delivery",
-    "slug": "delivery-application-gebeta",
+    "slug": "delivery-mobile-application-",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -32,22 +32,6 @@
       "package": "com.delivery.gebeta",
       "versionCode": 1,
       "permissions": [
-        "VIBRATE",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "CAMERA",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "WAKE_LOCK",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
         "VIBRATE",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -166,7 +150,7 @@
         "origin": "https://delivery.gebeta.com/"
       },
       "eas": {
-        "projectId": "a1342bd9-7823-4284-9bc1-a70e0ce44fd9"
+        "projectId": "2b8064e1-7413-4c4e-8225-4395119e6fe2"
       }
     },
     "updates": {
