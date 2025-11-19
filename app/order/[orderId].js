@@ -156,7 +156,6 @@ export default function OrderDetailsScreen() {
 
 
   const handleNavigateToRestaurant = () => {
-    console.log('🔍 Navigating to restaurant:', order);
     
     // Get restaurant location - handle both object format and coordinates array
     let lat, lng;
@@ -183,7 +182,6 @@ export default function OrderDetailsScreen() {
         address: order.restaurantLocation?.address || 'Restaurant Address'
       });
       
-      console.log('📍 Restaurant location data:', restaurantLocation);
       
       router.push({
         pathname: '/map',
@@ -197,9 +195,7 @@ export default function OrderDetailsScreen() {
   };
 
   const handleNavigateToDelivery = () => {
-    console.log('🔍 Navigating to delivery location');
-    console.log('🔍 Order data:', order);
-    
+     
     // Get delivery location - check multiple possible field names
     const deliveryLocationData = order?.destinationLocation || order?.deliveryLocation || order?.deliverLocation;
     
@@ -230,7 +226,6 @@ export default function OrderDetailsScreen() {
         address: deliveryLocationData.address || 'Delivery Address'
       });
       
-      console.log('📍 Delivery location data:', deliveryLocation);
       
       router.push({
         pathname: '/map',
@@ -700,8 +695,7 @@ export default function OrderDetailsScreen() {
             setShowQRScanner(false);
           }}
           onScanSuccess={(scannedCode, fullData) => {
-            console.log('✅ QR Code scanned:', scannedCode);
-            setShowQRScanner(false);
+             setShowQRScanner(false);
             setShowVerificationModal(false);
             setVerificationCode(scannedCode);
             // Auto-verify after scan

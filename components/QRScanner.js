@@ -47,7 +47,6 @@ export default function QRScanner({ visible, onClose, onScanSuccess, orderId }) 
     setScanned(true);
     setIsProcessing(true);
 
-
     try {
       // Parse the QR code data
       let verificationData;
@@ -65,7 +64,6 @@ export default function QRScanner({ visible, onClose, onScanSuccess, orderId }) 
                                verificationData.verificationCode || 
                                verificationData.orderId || 
                                data;
-
 
       // Success feedback
       if (Platform.OS === 'android') {
